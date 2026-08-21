@@ -1,0 +1,16 @@
+{
+  "policy": "CSHAKTI-ML-001 §10.3 requires configured weights, not invented relative importance. All listed signals use unit weight 1.0 (uncalibrated) until post-launch review. Baseline is 50 as specified.",
+  "baseline": 50,
+  "weights": {
+    "recent_high_risk_detections": 1.0,
+    "scans_performed": 1.0,
+    "password_check_performed": 1.0,
+    "password_check_verdict": 1.0,
+    "file_encryption_used": 1.0,
+    "quiz_completed": 1.0,
+    "uses_2fa_on_bank_apps": 1.0,
+    "reuses_passwords": 1.0,
+    "shares_otp_with_others": 1.0,
+    "locks_phone": 1.0
+  }
+}

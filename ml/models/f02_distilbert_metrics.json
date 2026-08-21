@@ -1,0 +1,48 @@
+{
+  "dataset_name": "SMS Spam Collection Dataset",
+  "source": "backend/ml/datasets/sms.tsv",
+  "dataset_size": 5572,
+  "labels": {
+    "ham": 0,
+    "spam": 1
+  },
+  "class_distribution": {
+    "ham": 4825,
+    "spam": 747
+  },
+  "balanced_subset_size": 500,
+  "train_size": 400,
+  "test_size": 100,
+  "distilbert_metrics": {
+    "accuracy": 0.97,
+    "precision": 0.9795918367346939,
+    "recall": 0.96,
+    "f1_score": 0.9696969696969697,
+    "confusion_matrix": [
+      [
+        49,
+        1
+      ],
+      [
+        2,
+        48
+      ]
+    ]
+  },
+  "baseline_metrics": {
+    "accuracy": 0.97,
+    "precision": 0.9795918367346939,
+    "recall": 0.96,
+    "f1_score": 0.9696969696969697,
+    "confusion_matrix": [
+      [
+        49,
+        1
+      ],
+      [
+        2,
+        48
+      ]
+    ]
+  }
+}
