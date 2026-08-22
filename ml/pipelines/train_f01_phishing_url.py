@@ -229,4 +229,4 @@ def train_f01_production_model(sample_size_per_class: int = 40000):
 
 
 if __name__ == "__main__":
-    train_f01_production_model(sample_size_per_class=40000)
+    train_f01_production_model(sample_size_per_class=150000)
