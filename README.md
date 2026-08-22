@@ -481,8 +481,6 @@ Dependencies: `pytest`, `pytest-asyncio`, `pytest-cov`, `ruff`, `black` (backend
 
 ## Design Decisions & Known Limitations
 
-- **F-11 AI Assistant is blocked.** The RAG pipeline and knowledge base are fully implemented, but LLM generation is disabled until ADR-013 (LLM provider selection) is resolved. The endpoint returns HTTP 501.
-
 - **F-07 domain mismatch (ADR-024) — RESOLVED.** The mule account detection model has been retrained on a synthetic Indian bank transaction dataset modelling real UPI/NEFT/IMPS fraud typologies (burst pass-through, smurfing, job-scam recruitment). See `backend/ml/pipelines/train_f07_indian_bank.py`. All verdicts still carry `is_experimental: true` as the dataset is synthetic, not real labelled bank data.
 
 - **MuleTrace Topology Map Engine & Demo Datasets.** The network topology console dynamically updates nodes, centrality metrics, and transaction volume totals across built-in scenarios (`UPI Mule Ring`, `Crypto P2P`, `Smurfing`) and custom CSV uploads (`demo_mule_ring_simple.csv`, `demo_mule_ring_complex.csv`).
