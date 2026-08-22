@@ -71,29 +71,24 @@ async def scan_url(
             detail={"error_code": "VALIDATION_ERROR", "message": "Input must be a valid http or https URL string."}
         )
 
-    # Extract 19 lexical & domain features for F-01
-    feats = extract_url_features(url_str)
-    
-    if f01_model is not None:
-        X = np.array([feature_vector(feats)])
-        prob = float(f01_model.predict_proba(X)[0, 1])
-    else:
-        is_phishing = any(sub in url_str.lower() for sub in ["kyc", "verify", "bank", "bit.ly", "login-update", "reward"])
-        prob = 0.89 if is_phishing else 0.05
+    from app.ml.f01 import infer_url_async
 
-    if prob >= 0.7:
-        risk_level = "high_risk"
-    elif prob >= 0.4:
-        risk_level = "moderate_risk"
-    else:
-        risk_level = "safe"
+    try:
+        f01_res = await infer_url_async(url_str, resolve_live=True)
+    except ValueError as val_err:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error_code": "VALIDATION_ERROR", "message": str(val_err)}
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error_code": "URL_SCAN_FAILED", "message": f"URL analysis failed: {str(exc)}"}
+        )
 
-    explanation_data = generate_explanation(
-        feature_id="F-01",
-        risk_level=risk_level,
-        signals=["suspicious_subdomain_pattern", "high_url_entropy"] if prob >= 0.4 else None,
-        scam_category="bank_phishing" if prob >= 0.4 else None
-    )
+    risk_level = f01_res["verdict"]["risk_level"]
+    prob = f01_res["ml_probability"]
+    risk_score = f01_res["risk_score"]
 
     # Persist scan result record (fail-safe for offline demo)
     try:
@@ -102,8 +97,8 @@ async def scan_url(
             feature_id="F-01",
             input_type="url",
             risk_level=risk_level,
-            risk_score_raw=round(prob, 4),
-            verdict_source="ml_model",
+            risk_score_raw=round(prob if prob is not None else (risk_score / 100.0), 4),
+            verdict_source=f01_res["verdict_source"],
             task_status="complete"
         )
         db.add(scan_rec)
@@ -116,9 +111,33 @@ async def scan_url(
 
     return {
         "scan_id": scan_id_val,
-        "input": {"url_submitted": payload.url.strip(), "url_normalised": url_str.lower()},
-        "verdict": explanation_data,
-        "url_features": feats
+        "input": {
+            "url_submitted": payload.url.strip(),
+            "url_normalised": f01_res["normalized_url"]
+        },
+        "original_url": f01_res["original_url"],
+        "normalized_url": f01_res["normalized_url"],
+        "final_url": f01_res["final_url"],
+        "classification": f01_res["classification"],
+        "url_type": f01_res["url_type"],
+        "link_status": f01_res["link_status"],
+        "redirect_status": f01_res["redirect_status"],
+        "redirect_count": f01_res["redirect_count"],
+        "redirect_chain": f01_res["redirect_chain"],
+        "redirect_analysis": f01_res["redirect_analysis"],
+        "risk_score": f01_res["risk_score"],
+        "confidence": f01_res["confidence"],
+        "verdict": f01_res["verdict"],
+        "probability": f01_res["probability"],
+        "ml_probability": f01_res["ml_probability"],
+        "features": f01_res["features"],
+        "url_features": f01_res["url_features"],
+        "explanations": f01_res["explanations"],
+        "explanation": f01_res["explanation"],
+        "signals": f01_res["signals"],
+        "model": f01_res["model"],
+        "analysis_time_ms": f01_res["analysis_time_ms"],
+        "verdict_source": f01_res["verdict_source"],
     }
 
 
@@ -272,25 +291,33 @@ async def scan_qr(
     is_url = payload_stripped.lower().startswith("http://") or payload_stripped.lower().startswith("https://")
 
     if is_url:
-        # Route URL payload through the F-01 phishing model
-        feats = extract_url_features(payload_stripped)
-        if f01_model is not None:
-            X = np.array([feature_vector(feats)])
-            prob = float(f01_model.predict_proba(X)[0, 1])
-        else:
-            is_phishing = any(sub in payload_stripped.lower() for sub in ["kyc", "verify", "bank", "bit.ly", "login-update", "reward"])
-            prob = 0.89 if is_phishing else 0.05
+        from app.ml.f01 import infer_url_async
+        try:
+            f01_res = await infer_url_async(payload_stripped, resolve_live=True)
+            risk_level = f01_res["verdict"]["risk_level"]
+            prob = f01_res["ml_probability"]
+            explanation_data = f01_res["verdict"]
+            feats = f01_res["url_features"]
+        except Exception:
+            # Fallback
+            feats = extract_url_features(payload_stripped)
+            if f01_model is not None:
+                X = np.array([feature_vector(feats)])
+                prob = float(f01_model.predict_proba(X)[0, 1])
+            else:
+                is_phishing = any(sub in payload_stripped.lower() for sub in ["kyc", "verify", "bank", "bit.ly", "login-update", "reward"])
+                prob = 0.89 if is_phishing else 0.05
 
-        risk_level = "high_risk" if prob >= 0.7 else "moderate_risk" if prob >= 0.4 else "safe"
-        signals = ["suspicious_qr_url", "high_url_entropy"] if prob >= 0.4 else None
-        scam_category = "qr_phishing" if prob >= 0.4 else None
+            risk_level = "high_risk" if prob >= 0.7 else "moderate_risk" if prob >= 0.4 else "safe"
+            signals = ["suspicious_qr_url", "high_url_entropy"] if prob >= 0.4 else None
+            scam_category = "qr_phishing" if prob >= 0.4 else None
 
-        explanation_data = generate_explanation(
-            feature_id="F-04",
-            risk_level=risk_level,
-            signals=signals,
-            scam_category=scam_category
-        )
+            explanation_data = generate_explanation(
+                feature_id="F-04",
+                risk_level=risk_level,
+                signals=signals,
+                scam_category=scam_category
+            )
 
         # Persist scan result
         try:
@@ -299,7 +326,7 @@ async def scan_qr(
                 feature_id="F-04",
                 input_type="qr_url",
                 risk_level=risk_level,
-                risk_score_raw=round(prob, 4),
+                risk_score_raw=round(prob if prob is not None else 0.5, 4),
                 verdict_source="ml_model",
                 task_status="complete"
             )

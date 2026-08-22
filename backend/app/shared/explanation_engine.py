@@ -7,7 +7,8 @@ RISK_DESCRIPTIONS = {
     "low_risk": "Low risk detected. Minor signals present, but no definitive threat indicators found.",
     "moderate_risk": "Moderate risk detected. Exercise caution and verify details before interacting.",
     "high_risk": "High risk detected! Strong scam or phishing indicators were identified.",
-    "critical": "Critical threat detected! High likelihood of active fraud or malicious activity."
+    "critical": "Critical threat detected! High likelihood of active fraud or malicious activity.",
+    "unknown": "Unable to verify destination safely. Target host was unreachable, timed out, or blocked by security policies."
 }
 
 

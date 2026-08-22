@@ -67,6 +67,18 @@ const RISK_CONFIG = {
     },
     icon: AlertOctagon,
   },
+  unknown: {
+    label: 'UNKNOWN',
+    subLabel: 'Unverified / Unreachable Destination',
+    colors: {
+      bg:     'bg-slate-900/60',
+      border: 'border-slate-500/40',
+      badge:  'bg-slate-500/20 text-slate-300 border-slate-500/40',
+      text:   'text-slate-300',
+      meter:  { stroke: '#94A3B8', text: 'text-slate-300', glow: 'rgba(148,163,184,0.3)' },
+    },
+    icon: Info,
+  },
 };
 
 // Animated confidence number
