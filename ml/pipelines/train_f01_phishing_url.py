@@ -1,144 +1,232 @@
-import os
+"""
+Production F-01 Phishing URL Model Training Pipeline.
+Trains a native XGBoost classifier on the real uploaded datasets:
+- 'Phishing URLs.csv' (54,807 URLs)
+- 'URL dataset.csv' (450,176 URLs: 345,738 legitimate, 104,438 phishing)
+
+Performs data normalization:
+- Non-www domain variants for legitimate domains to prevent domain prefix bias
+- Stratified sampling with held-out test split (80/10/10)
+- Serializes trained XGBoost model and metrics
+"""
+
+from __future__ import annotations
+
 import json
-import math
-import re
-from urllib.parse import urlparse
+import os
+import random
+import sys
+import time
+from pathlib import Path
+from typing import Any, Dict, List, Tuple
+
 import joblib
 import numpy as np
 import pandas as pd
+from sklearn.metrics import (
+    accuracy_score,
+    confusion_matrix,
+    f1_score,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+)
 from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LogisticRegression
 from xgboost import XGBClassifier
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, confusion_matrix
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "backend"))
+
+from app.detect_analyze.url import NUMERIC_FEATURE_ORDER, extract_url_features, feature_vector
+
+SEED = 42
+random.seed(SEED)
+np.random.seed(SEED)
 
 
-def extract_url_features(url: str) -> dict:
-    """Extracts 17 lexical and domain features from a URL string according to CSHAKTI-ML-001 §2.4."""
-    parsed = urlparse(url if url.startswith(('http://', 'https://')) else f'http://{url}')
-    domain = parsed.netloc or parsed.path.split('/')[0]
-    path = parsed.path
-    
-    url_len = len(url)
-    domain_len = len(domain)
-    path_len = len(path)
-    num_dots = url.count('.')
-    num_hyphens = domain.count('-')
-    num_underscores = url.count('_')
-    num_at = url.count('@')
-    num_question = url.count('?')
-    num_slashes = url.count('/')
-    num_digits = sum(c.isdigit() for c in domain)
-    digit_ratio = num_digits / max(1, domain_len)
-    
-    has_ip = 1 if re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', domain) else 0
-    uses_https = 1 if url.startswith('https://') else 0
-    has_port = 1 if ':' in domain and not domain.endswith(':80') and not domain.endswith(':443') else 0
-    
-    prob = [float(url.count(c)) / len(url) for c in set(url)]
-    entropy = -sum([p * math.log(p, 2) for p in prob]) if prob else 0
-    
-    subdomain_count = max(0, len(domain.split('.')) - 2)
-    
-    shorteners = ['bit.ly', 'tinyurl.com', 'goo.gl', 't.co', 'ow.ly', 'is.gd', 'buff.ly']
-    is_shortened = 1 if any(s in domain for s in shorteners) else 0
+def load_and_preprocess_datasets(sample_size_per_class: int = 40000) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
+    print("[*] Loading uploaded CSV datasets: 'Phishing URLs.csv' and 'URL dataset.csv'...")
+    t0 = time.perf_counter()
 
-    return {
-        'url_length': url_len,
-        'domain_length': domain_len,
-        'path_length': path_len,
-        'num_dots': num_dots,
-        'num_hyphens': num_hyphens,
-        'num_underscores': num_underscores,
-        'num_at_signs': num_at,
-        'num_question_marks': num_question,
-        'num_slashes': num_slashes,
-        'num_digits': num_digits,
-        'digit_to_letter_ratio': digit_ratio,
-        'has_ip_address': has_ip,
-        'uses_https': uses_https,
-        'has_port_in_url': has_port,
-        'url_entropy': round(entropy, 4),
-        'subdomain_count': subdomain_count,
-        'is_shortened_url': is_shortened
+    # 1. Load Phishing URLs.csv
+    phish_path = ROOT / "Phishing URLs.csv"
+    if not phish_path.is_file():
+        raise FileNotFoundError(f"Missing {phish_path}")
+    df_phish = pd.read_csv(phish_path)
+    phish_urls_1 = df_phish["url"].dropna().astype(str).tolist()
+
+    # 2. Load URL dataset.csv
+    url_dataset_path = ROOT / "URL dataset.csv"
+    if not url_dataset_path.is_file():
+        raise FileNotFoundError(f"Missing {url_dataset_path}")
+    df_url = pd.read_csv(url_dataset_path)
+    legit_raw = df_url[df_url["type"].str.lower() == "legitimate"]["url"].dropna().astype(str).tolist()
+    phish_urls_2 = df_url[df_url["type"].str.lower() == "phishing"]["url"].dropna().astype(str).tolist()
+
+    # Normalize legitimate URLs (include non-www variants to eliminate domain prefix bias)
+    legit_clean = []
+    for u in legit_raw:
+        legit_clean.append(u)
+        if "://www." in u:
+            legit_clean.append(u.replace("://www.", "://"))
+
+    all_phish = list(set(phish_urls_1 + phish_urls_2))
+    all_legit = list(set(legit_clean))
+
+    print(f"[+] Total Available Unique Phishing URLs: {len(all_phish):,}")
+    print(f"[+] Total Available Unique Legitimate URLs: {len(all_legit):,}")
+
+    random.shuffle(all_phish)
+    random.shuffle(all_legit)
+
+    sampled_phish = all_phish[:min(sample_size_per_class, len(all_phish))]
+    sampled_legit = all_legit[:min(sample_size_per_class, len(all_legit))]
+
+    urls = sampled_legit + sampled_phish
+    labels = [0] * len(sampled_legit) + [1] * len(sampled_phish)
+
+    combined = list(zip(urls, labels))
+    random.shuffle(combined)
+    urls, labels = zip(*combined)
+
+    print(f"[*] Extracting 19 lexical & structural features for {len(urls):,} balanced URLs...")
+    t_feat_start = time.perf_counter()
+
+    features_list = []
+    for i, u in enumerate(urls):
+        try:
+            feats = extract_url_features(u)
+            vec = feature_vector(feats)
+            features_list.append(vec)
+        except Exception:
+            features_list.append([0.0] * len(NUMERIC_FEATURE_ORDER))
+
+        if (i + 1) % 10000 == 0 or (i + 1) == len(urls):
+            print(f"    Processed {i+1:,}/{len(urls):,} URLs ({((i+1)/(time.perf_counter() - t_feat_start)):.1f} URLs/sec)...")
+
+    t_total = time.perf_counter() - t0
+    print(f"[OK] Feature extraction complete in {t_total:.2f}s.")
+
+    meta = {
+        "total_phishing_pool": len(all_phish),
+        "total_legitimate_pool": len(all_legit),
+        "sampled_phishing": len(sampled_phish),
+        "sampled_legitimate": len(sampled_legit),
+        "total_samples": len(urls),
     }
 
-
-def generate_synthetic_url_dataset(num_samples: int = 1000) -> pd.DataFrame:
-    """Generates a reproducible dataset of phishing and legitimate URLs for F-01 model training."""
-    np.random.seed(42)
-    
-    legit_domains = ["google.com", "wikipedia.org", "github.com", "gov.in", "amazon.in", "sbi.co.in", "hdfcbank.com", "npci.org.in"]
-    phish_tokens = ["verify-kyc", "bank-update", "reward-claim", "account-blocked", "secure-login", "upi-collect"]
-    phish_tlds = [".info", ".xyz", ".top", ".club", ".online"]
-    
-    data = []
-    labels = []
-    
-    for i in range(num_samples // 2):
-        domain = np.random.choice(legit_domains)
-        path = f"/page/{i}" if i % 2 == 0 else ""
-        url = f"https://www.{domain}{path}"
-        data.append(extract_url_features(url))
-        labels.append(0)
-        
-        token = np.random.choice(phish_tokens)
-        tld = np.random.choice(phish_tlds)
-        sub = "login.verify" if i % 3 == 0 else "update"
-        url = f"http://{sub}.{token}-{i}{tld}/account/verify?token=abc"
-        data.append(extract_url_features(url))
-        labels.append(1)
-        
-    df = pd.DataFrame(data)
-    df['label'] = labels
-    return df
+    return np.array(features_list, dtype=np.float32), np.array(labels, dtype=np.int32), meta
 
 
-def train_f01_model():
-    """Trains native XGBoost classifier (XGBClassifier) for F-01 Phishing URL Detection per ADR-008."""
-    print("=== Training F-01 Phishing URL Model (Native XGBoost) ===")
-    df = generate_synthetic_url_dataset(1000)
-    X = df.drop(columns=['label'])
-    y = df['label']
-    
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
-    
-    # Baseline: Logistic Regression
-    lr = LogisticRegression(max_iter=1000, random_state=42)
-    lr.fit(X_train, y_train)
-    
-    # Mandatory Native XGBoost Model (ADR-008)
-    xgb_model = XGBClassifier(
-        n_estimators=100,
-        max_depth=4,
-        learning_rate=0.1,
-        random_state=42,
-        eval_metric='logloss'
+def train_f01_production_model(sample_size_per_class: int = 40000):
+    print("================================================================")
+    print("=== Training F-01 Phishing URL Model on Uploaded CSV Datasets ===")
+    print("================================================================")
+
+    X, y, data_meta = load_and_preprocess_datasets(sample_size_per_class)
+
+    print("[*] Splitting dataset into Train (80%), Validation (10%), Test (10%)...")
+    X_train, X_temp, y_train, y_temp = train_test_split(
+        X, y, test_size=0.2, random_state=SEED, stratify=y
     )
-    xgb_model.fit(X_train, y_train)
-    xgb_preds = xgb_model.predict(X_test)
-    xgb_probs = xgb_model.predict_proba(X_test)[:, 1]
-    
+    X_val, X_test, y_val, y_test = train_test_split(
+        X_temp, y_temp, test_size=0.5, random_state=SEED, stratify=y_temp
+    )
+
+    print(f"[+] Train set: {len(X_train):,} samples ({int(y_train.sum()):,} Phishing, {len(y_train) - int(y_train.sum()):,} Legit)")
+    print(f"[+] Val set:   {len(X_val):,} samples")
+    print(f"[+] Test set:  {len(X_test):,} samples")
+
+    print("[*] Initializing and training native XGBoost Classifier...")
+    t_train_start = time.perf_counter()
+
+    xgb_model = XGBClassifier(
+        n_estimators=160,
+        max_depth=6,
+        learning_rate=0.08,
+        subsample=0.85,
+        colsample_bytree=0.85,
+        objective="binary:logistic",
+        eval_metric="logloss",
+        random_state=SEED,
+        n_jobs=-1,
+    )
+
+    xgb_model.fit(
+        X_train,
+        y_train,
+        eval_set=[(X_val, y_val)],
+        verbose=20,
+    )
+    t_train = time.perf_counter() - t_train_start
+    print(f"[OK] XGBoost training finished in {t_train:.2f}s.")
+
+    print(f"[*] Evaluating model on held-out test set ({len(X_test):,} samples)...")
+    y_pred = xgb_model.predict(X_test)
+    y_prob = xgb_model.predict_proba(X_test)[:, 1]
+
+    acc = float(accuracy_score(y_test, y_pred))
+    prec = float(precision_score(y_test, y_pred, zero_division=0))
+    rec = float(recall_score(y_test, y_pred, zero_division=0))
+    f1 = float(f1_score(y_test, y_pred, zero_division=0))
+    roc_auc = float(roc_auc_score(y_test, y_prob))
+    tn, fp, fn, tp = confusion_matrix(y_test, y_pred, labels=[0, 1]).ravel()
+
     metrics = {
-        "accuracy": float(accuracy_score(y_test, xgb_preds)),
-        "precision": float(precision_score(y_test, xgb_preds)),
-        "recall": float(recall_score(y_test, xgb_preds)),
-        "f1_score": float(f1_score(y_test, xgb_preds)),
-        "roc_auc": float(roc_auc_score(y_test, xgb_probs)),
-        "confusion_matrix": confusion_matrix(y_test, xgb_preds).tolist()
+        "model": "XGBoost",
+        "version": "native-v3-csv-trained",
+        "datasets_used": ["Phishing URLs.csv", "URL dataset.csv"],
+        "dataset_metadata": data_meta,
+        "features": NUMERIC_FEATURE_ORDER,
+        "feature_count": len(NUMERIC_FEATURE_ORDER),
+        "split": "80/10/10 stratified",
+        "seed": SEED,
+        "n_train": int(len(y_train)),
+        "n_val": int(len(y_val)),
+        "n_test": int(len(y_test)),
+        "metrics": {
+            "accuracy": round(acc, 4),
+            "precision": round(prec, 4),
+            "recall": round(rec, 4),
+            "f1_score": round(f1, 4),
+            "roc_auc": round(roc_auc, 4),
+            "false_positive_rate": round(float(fp / (fp + tn)), 4) if (fp + tn) > 0 else 0.0,
+            "false_negative_rate": round(float(fn / (fn + tp)), 4) if (fn + tp) > 0 else 0.0,
+            "confusion_matrix": {
+                "tn": int(tn),
+                "fp": int(fp),
+                "fn": int(fn),
+                "tp": int(tp),
+            }
+        },
+        "trained_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
-    
-    os.makedirs("ml/models", exist_ok=True)
-    os.makedirs("backend/app/ml/models", exist_ok=True)
-    
-    joblib.dump(xgb_model, "ml/models/f01_phishing_url_model.joblib")
-    joblib.dump(xgb_model, "backend/app/ml/models/f01_phishing_url_model.joblib")
-    
-    with open("ml/models/f01_metrics.json", "w") as f:
-        json.dump(metrics, f, indent=2)
-        
-    print("F-01 XGBoost Training Complete. Metrics:", metrics)
+
+    print("\n=== Model Performance Evaluation on Held-Out Test Set ===")
+    print(f"Accuracy:            {acc * 100:.2f}%")
+    print(f"Precision:           {prec * 100:.2f}%")
+    print(f"Recall:              {rec * 100:.2f}%")
+    print(f"F1-Score:            {f1 * 100:.2f}%")
+    print(f"ROC-AUC:             {roc_auc:.4f}")
+    print(f"Confusion Matrix:    TN={tn}, FP={fp}, FN={fn}, TP={tp}")
+    print(f"False Positive Rate: {metrics['metrics']['false_positive_rate'] * 100:.2f}%")
+
+    target_dirs = [
+        ROOT / "backend" / "app" / "ml" / "models",
+        ROOT / "backend" / "ml" / "artefacts",
+        ROOT / "ml" / "models",
+    ]
+
+    for d in target_dirs:
+        d.mkdir(parents=True, exist_ok=True)
+        joblib.dump(xgb_model, d / "f01_phishing_url_model.joblib")
+        (d / "f01_metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+        if d.name == "artefacts":
+            joblib.dump(xgb_model, d / "f01_xgboost.joblib")
+
+    print("\n[OK] Serialized trained model to:", [str(d / "f01_phishing_url_model.joblib") for d in target_dirs])
     return metrics
 
 
 if __name__ == "__main__":
-    train_f01_model()
+    train_f01_production_model(sample_size_per_class=40000)

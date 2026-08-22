@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from app.detect_analyze.url import (
     NUMERIC_FEATURE_ORDER,
+    OFFICIAL_DOMAINS,
     analyze_redirect_chain_security,
     detect_url_type,
     extract_url_features,
@@ -123,7 +124,14 @@ def calculate_comprehensive_risk(
         return 95, link_status, "critical", explanations, signals
 
     # 3. Base Score from ML Probability or Heuristics
-    if ml_probability is not None:
+    is_official_dest = (
+        final_features.get("host") in OFFICIAL_DOMAINS
+        or any(str(final_features.get("host", "")).endswith("." + d) for d in OFFICIAL_DOMAINS)
+    )
+
+    if is_official_dest and not chain_sec.get("https_downgraded"):
+        base_score = 5.0
+    elif ml_probability is not None:
         base_score = ml_probability * 100.0
     else:
         # Heuristic base
@@ -202,12 +210,12 @@ def calculate_comprehensive_risk(
     # Clamp risk score between 0 and 100
     final_score = int(min(max(round(score), 0), 100))
 
-    # 5. Map to Standard Security Verdict
-    if final_score >= 75:
+    # 6. Map to Standard Security Verdict
+    if final_score >= 70:
         risk_level = "high_risk"
-    elif final_score >= 45:
+    elif final_score >= 50:
         risk_level = "moderate_risk"
-    elif final_score >= 25:
+    elif final_score >= 35:
         risk_level = "low_risk"
     else:
         risk_level = "safe"
