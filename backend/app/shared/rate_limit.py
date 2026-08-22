@@ -37,7 +37,8 @@ def _limit_for_path(path: str) -> int:
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        if not settings.RATE_LIMIT_ENABLED:
+        # OPTIONS preflight requests must bypass rate limiting completely
+        if request.method == "OPTIONS" or not settings.RATE_LIMIT_ENABLED:
             return await call_next(request)
         if request.url.path in ("/health", "/health/live"):
             return await call_next(request)

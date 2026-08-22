@@ -31,6 +31,11 @@ Thumbs.db
 scan-uploads/
 *.enc
 
+# Local SQLite databases
+*.db
+*.sqlite
+*.sqlite3
+
 # ML model binary artifacts (large files — not tracked in git)
 *.pth
 *.joblib

@@ -6,15 +6,23 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Create Async SQLAlchemy Engine
-engine = create_async_engine(
-    settings.DATABASE_URL,
-    echo=settings.DEBUG,
-    future=True,
-    pool_pre_ping=True,
-    pool_size=10,
-    max_overflow=20
-)
+# Configure Async Engine based on database dialect
+if "sqlite" in settings.DATABASE_URL.lower():
+    engine = create_async_engine(
+        settings.DATABASE_URL,
+        echo=settings.DEBUG,
+        future=True,
+        connect_args={"check_same_thread": False}
+    )
+else:
+    engine = create_async_engine(
+        settings.DATABASE_URL,
+        echo=settings.DEBUG,
+        future=True,
+        pool_pre_ping=True,
+        pool_size=10,
+        max_overflow=20
+    )
 
 # Async Session Factory
 AsyncSessionLocal = async_sessionmaker(
@@ -74,24 +82,31 @@ class DevInMemorySession:
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """Dependency that provides an async database session for FastAPI endpoints with dev fallback."""
-    async with AsyncSessionLocal() as session:
-        try:
-            yield session
+    try:
+        async with AsyncSessionLocal() as session:
             try:
-                await session.commit()
-            except Exception as commit_err:
-                if settings.ENVIRONMENT.lower() == "dev":
-                    logger.warning("Database commit skipped in dev mode: %s", commit_err)
-                else:
-                    raise
-        except Exception:
-            try:
-                await session.rollback()
+                yield session
+                try:
+                    await session.commit()
+                except Exception as commit_err:
+                    if settings.ENVIRONMENT.lower() == "dev":
+                        logger.warning("Database commit skipped in dev mode: %s", commit_err)
+                    else:
+                        raise
             except Exception:
-                pass
+                try:
+                    await session.rollback()
+                except Exception:
+                    pass
+                raise
+            finally:
+                try:
+                    await session.close()
+                except Exception:
+                    pass
+    except Exception as db_err:
+        if settings.ENVIRONMENT.lower() == "dev":
+            logger.warning("Database connection offline (%s). Using dev in-memory database fallback.", db_err)
+            yield DevInMemorySession()
+        else:
             raise
-        finally:
-            try:
-                await session.close()
-            except Exception:
-                pass

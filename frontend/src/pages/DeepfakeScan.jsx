@@ -1,12 +1,17 @@
 import React, { useState, useRef } from 'react';
-import { ScanEye, UploadCloud, AlertCircle, Loader2, ShieldX, ShieldCheck, Camera } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { ScanEye, UploadCloud, AlertCircle, Camera, ShieldCheck, ShieldX, RefreshCw } from 'lucide-react';
 import { api } from '../services/api';
+import { ScanAnimation } from '../components/ScanAnimation';
+import { ThreatResultCard } from '../components/ThreatResultCard';
 
-const BADGE_STYLES = {
-  high_risk:     { bg: 'bg-red-500/15 border-red-500/40',     text: 'text-red-300',     label: '⚠ DEEPFAKE DETECTED',   icon: ShieldX },
-  moderate_risk: { bg: 'bg-amber-500/15 border-amber-500/40', text: 'text-amber-300',   label: '⚠ SUSPICIOUS',          icon: ShieldX },
-  safe:          { bg: 'bg-emerald-500/15 border-emerald-500/40', text: 'text-emerald-300', label: '✓ AUTHENTIC',        icon: ShieldCheck },
-};
+const DEEPFAKE_STAGES = [
+  { id: 'input',     label: 'Media file uploaded & verified', duration: 400 },
+  { id: 'normalize', label: 'Extracting face region bounding boxes', duration: 600 },
+  { id: 'extract',   label: 'Normalizing resolution & color spaces', duration: 500 },
+  { id: 'model',     label: 'Evaluating EfficientNet-B4 neural feature maps', duration: 1100 },
+  { id: 'risk',      label: 'Calculating deepfake anomaly confidence score', duration: 500 },
+];
 
 const POLLING_MAX = 20;
 const POLLING_INTERVAL_MS = 1500;
@@ -18,11 +23,13 @@ export const DeepfakeScan = () => {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [dragOver, setDragOver] = useState(false);
+  const [currentTaskId, setCurrentTaskId] = useState(null);
   const inputRef = useRef(null);
 
   const resetState = () => {
     setResult(null);
     setError(null);
+    setCurrentTaskId(null);
   };
 
   const handleFile = (selectedFile) => {
@@ -77,6 +84,7 @@ export const DeepfakeScan = () => {
     try {
       const res = await api.post('/detect/analyze-media-deepfake', formData);
       if (res.data.task_id) {
+        setCurrentTaskId(res.data.task_id);
         pollTask(res.data.task_id);
       } else {
         setLoading(false);
@@ -91,168 +99,194 @@ export const DeepfakeScan = () => {
 
   const verdict = result?.verdict;
   const analysis = result?.media_analysis;
-  const badge = verdict ? BADGE_STYLES[verdict.risk_level] : null;
+  const anomalyScore = analysis?.anomaly_score !== undefined ? analysis.anomaly_score * 100 : 0;
+  const isFake = verdict?.risk_level === 'high_risk' || verdict?.risk_level === 'moderate_risk';
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8 space-y-8">
+    <div className="max-w-4xl mx-auto px-4 py-10 space-y-8">
       {/* Header */}
-      <div className="space-y-2">
-        <h1 className="text-3xl font-extrabold text-white flex items-center gap-3">
-          <ScanEye className="w-8 h-8 text-cyan-400" />
+      <div className="space-y-3">
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-xs font-mono font-bold">
+          <ScanEye className="w-3.5 h-3.5" /> EFFICIENTNET-B4 NEURAL ENGINE
+        </div>
+        <h1 className="text-3xl sm:text-4xl font-display font-extrabold text-white tracking-tight flex items-center gap-3">
           Deepfake Media Detection
         </h1>
-        <p className="text-slate-300 text-sm">
-          Upload a face image or video frame to detect AI-generated manipulated media using our EfficientNet-B4 model (Acc: 92.80%, AUC: 98.59%).
+        <p className="text-slate-300 text-sm max-w-2xl">
+          Upload any human face image to analyze for AI-generated manipulation, face-swaps, and deepfake artifacts.
         </p>
       </div>
 
-      {/* Upload Zone */}
-      <div
-        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={handleDrop}
-        onClick={() => inputRef.current?.click()}
-        className={`relative rounded-2xl border-2 border-dashed transition-all cursor-pointer p-8 text-center space-y-4 ${
-          dragOver
-            ? 'border-cyan-400 bg-cyan-500/5'
-            : 'border-border bg-surface hover:border-cyan-500/50'
-        }`}
-      >
-        <input
-          ref={inputRef}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          id="deepfake-file-input"
-          onChange={(e) => handleFile(e.target.files[0])}
-        />
-
-        {preview ? (
-          <div className="space-y-3">
-            <img
-              src={preview}
-              alt="Selected for analysis"
-              className="mx-auto max-h-56 rounded-xl object-cover border border-border shadow-lg"
+      {/* Main Upload & Analysis Interface */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+        {/* Left: Upload Dropzone & Scanning Preview */}
+        <div className="space-y-4">
+          <div
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={handleDrop}
+            onClick={() => !loading && inputRef.current?.click()}
+            className={`relative rounded-2xl border-2 border-dashed transition-all p-6 text-center space-y-4 overflow-hidden min-h-[300px] flex flex-col items-center justify-center ${
+              loading ? 'cursor-wait border-cyan-500/60 bg-cyan-950/20' :
+              dragOver ? 'border-cyan-400 bg-cyan-500/10 scale-[1.01]' :
+              preview ? 'border-cyan-500/40 bg-surface/90 hover:border-cyan-400' :
+              'border-border bg-surface hover:border-cyan-500/40 cursor-pointer'
+            }`}
+          >
+            <input
+              ref={inputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              id="deepfake-file-input"
+              onChange={(e) => handleFile(e.target.files[0])}
             />
-            <p className="text-sm text-slate-400">
-              <span className="font-semibold text-slate-200">{file?.name}</span>{' '}
-              · {(file?.size / 1024).toFixed(1)} KB
+
+            {preview ? (
+              <div className="relative w-full space-y-3">
+                <div className="relative inline-block overflow-hidden rounded-xl border border-border shadow-2xl max-h-64 mx-auto">
+                  <img
+                    src={preview}
+                    alt="Selected media for analysis"
+                    className="max-h-64 object-contain rounded-xl mx-auto"
+                  />
+
+                  {/* Animated laser scan line overlay when loading */}
+                  {loading && (
+                    <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-xl">
+                      <div className="absolute left-0 right-0 h-1 bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_15px_#06b6d4] animate-scan-line" />
+                      <div className="absolute inset-0 bg-cyan-500/10 backdrop-contrast-125" />
+                    </div>
+                  )}
+                </div>
+
+                <div className="text-center space-y-1">
+                  <p className="text-xs font-mono font-semibold text-slate-200 truncate max-w-xs mx-auto">
+                    {file?.name}
+                  </p>
+                  <p className="text-[11px] text-slate-500">
+                    {(file?.size / 1024).toFixed(1)} KB · Click or drag to replace
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3 p-4">
+                <div className="mx-auto w-16 h-16 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.15)]">
+                  <UploadCloud className="w-8 h-8" />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-slate-200 font-display font-semibold text-sm">
+                    Drop face image here or <span className="text-cyan-400 underline">browse</span>
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Supports JPEG, PNG, WebP · Human face images work best
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Analyze Action Button */}
+          <button
+            onClick={handleSubmit}
+            disabled={!file || loading}
+            className="w-full py-4 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-black font-display font-bold text-sm tracking-wider uppercase flex items-center justify-center gap-2 disabled:opacity-40 transition-all shadow-[0_0_20px_rgba(6,182,212,0.25)]"
+            id="deepfake-analyze-btn"
+          >
+            {loading ? (
+              <>
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                Analyzing Deepfake Signals…
+              </>
+            ) : (
+              <>
+                <Camera className="w-4 h-4" />
+                Analyze Media
+              </>
+            )}
+          </button>
+
+          {/* Model Credibility Tag */}
+          <div className="p-4 rounded-xl bg-surface/60 border border-border/50 space-y-2 text-xs text-slate-400">
+            <div className="flex justify-between items-center text-slate-300 font-mono text-[11px]">
+              <span>MODEL: EfficientNet-B4</span>
+              <span className="text-cyan-400 font-bold">AUC 98.59%</span>
+            </div>
+            <p className="text-[11px] leading-relaxed">
+              Trained on Celeb-DF dataset. Evaluates spatial inconsistencies, blending boundaries, and neural noise distribution.
             </p>
-            <p className="text-xs text-slate-500">Click or drag to replace</p>
           </div>
-        ) : (
-          <div className="space-y-3">
-            <div className="mx-auto w-16 h-16 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center">
-              <UploadCloud className="w-8 h-8 text-cyan-400" />
-            </div>
-            <p className="text-slate-300 font-semibold">Drag & drop an image, or click to browse</p>
-            <p className="text-xs text-slate-500">JPEG, PNG, WebP · Max 10 MB · Human face images work best</p>
-          </div>
-        )}
-      </div>
-
-      {/* Analyze Button */}
-      <button
-        onClick={handleSubmit}
-        disabled={!file || loading}
-        className="w-full py-3.5 rounded-xl bg-cyan-600 hover:bg-cyan-700 text-white font-bold flex items-center justify-center gap-2 disabled:opacity-40 transition-all shadow-lg shadow-cyan-900/20"
-        id="deepfake-analyze-btn"
-      >
-        {loading ? (
-          <>
-            <Loader2 className="w-5 h-5 animate-spin" />
-            Analyzing with EfficientNet-B4…
-          </>
-        ) : (
-          <>
-            <Camera className="w-5 h-5" />
-            Analyze for Deepfake
-          </>
-        )}
-      </button>
-
-      {/* Error */}
-      {error && (
-        <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-sm flex items-start gap-3">
-          <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-          <span>{error}</span>
         </div>
-      )}
 
-      {/* Verdict Card */}
-      {verdict && badge && (
-        <div className={`p-6 rounded-2xl border space-y-5 ${badge.bg}`}>
-          {/* Verdict Header */}
-          <div className="flex items-center gap-4">
-            <div className={`p-3 rounded-xl border ${badge.bg}`}>
-              {React.createElement(badge.icon, { className: `w-7 h-7 ${badge.text}` })}
-            </div>
-            <div>
-              <span className={`text-xs uppercase tracking-widest font-bold ${badge.text}`}>
-                {badge.label}
-              </span>
-              <p className="text-white font-bold text-lg">{verdict.risk_label || verdict.risk_level}</p>
-            </div>
-          </div>
+        {/* Right: Live Scanning Progress & Threat Result Reveal */}
+        <div className="space-y-6">
+          {/* Active Scan Stage Animation */}
+          <ScanAnimation
+            isActive={loading}
+            scanId={currentTaskId}
+            stages={DEEPFAKE_STAGES}
+            accentColor="cyan"
+          />
 
-          {/* Metrics Grid */}
-          {analysis && (
-            <div className="grid grid-cols-3 gap-3">
-              <div className="p-4 rounded-xl bg-background/60 border border-border text-center space-y-1">
-                <p className="text-xs uppercase tracking-wider text-slate-400">Anomaly Score</p>
-                <p className={`text-2xl font-extrabold ${badge.text}`}>
-                  {(analysis.anomaly_score * 100).toFixed(1)}%
-                </p>
-                <p className="text-[10px] text-slate-500">Fake probability</p>
-              </div>
-              <div className="p-4 rounded-xl bg-background/60 border border-border text-center space-y-1">
-                <p className="text-xs uppercase tracking-wider text-slate-400">Faces Detected</p>
-                <p className="text-2xl font-extrabold text-white">
-                  {analysis.faces_detected ?? '—'}
-                </p>
-                <p className="text-[10px] text-slate-500">Face regions</p>
-              </div>
-              <div className="p-4 rounded-xl bg-background/60 border border-border text-center space-y-1">
-                <p className="text-xs uppercase tracking-wider text-slate-400">Model</p>
-                <p className="text-xs font-bold text-slate-200 leading-tight mt-1">
-                  EfficientNet-B4
-                </p>
-                <p className="text-[10px] text-slate-500">AUC 98.59%</p>
-              </div>
+          {/* Error display */}
+          {error && (
+            <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-xs flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+              <span>{error}</span>
             </div>
           )}
 
-          {/* Explanation */}
-          {verdict.explanation && (
-            <div className="p-4 rounded-xl bg-background/60 border border-border space-y-1">
-              <p className="text-xs uppercase tracking-wider text-slate-400 font-semibold">Analysis</p>
-              <p className="text-slate-200 text-sm">{verdict.explanation}</p>
+          {/* Final Verdict Threat Result Card */}
+          {verdict && !loading && (
+            <div className="space-y-4">
+              {/* Highlight Reveal Banner */}
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                className={`p-5 rounded-2xl border text-center space-y-2 ${
+                  isFake
+                    ? 'bg-red-950/40 border-red-500/40 shadow-[0_0_30px_rgba(239,68,68,0.2)]'
+                    : 'bg-emerald-950/40 border-emerald-500/40 shadow-[0_0_30px_rgba(34,197,94,0.2)]'
+                }`}
+              >
+                <div className="flex items-center justify-center gap-2">
+                  {isFake ? (
+                    <ShieldX className="w-8 h-8 text-red-400" />
+                  ) : (
+                    <ShieldCheck className="w-8 h-8 text-emerald-400" />
+                  )}
+                  <span className={`text-2xl font-display font-extrabold tracking-wider ${isFake ? 'text-red-400' : 'text-emerald-400'}`}>
+                    {isFake ? 'MANIPULATED MEDIA (FAKE)' : 'AUTHENTIC MEDIA (REAL)'}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-300">
+                  Confidence Score: <strong className="text-white font-mono text-sm">{anomalyScore.toFixed(1)}%</strong>
+                </p>
+              </motion.div>
+
+              <ThreatResultCard
+                verdict={verdict}
+                confidence={anomalyScore}
+                threatType={isFake ? 'Deepfake Manipulation Detected' : 'Authentic Media Verified'}
+                scanId={currentTaskId}
+                extraMetrics={[
+                  { label: 'Faces Detected', value: analysis?.faces_detected ?? 1, sub: 'Face bounding regions' },
+                  { label: 'Anomaly Probability', value: `${(anomalyScore).toFixed(1)}%`, sub: 'EfficientNet output' },
+                  { label: 'Model Baseline', value: 'Celeb-DF', sub: '92.8% Test Accuracy' }
+                ]}
+              />
             </div>
           )}
 
-          {/* Recommended Action */}
-          {verdict.recommended_action && (
-            <div className="p-4 rounded-xl bg-background/60 border border-border space-y-1">
-              <p className="text-xs uppercase tracking-wider text-slate-400 font-semibold">Recommended Action</p>
-              <p className="text-slate-200 text-sm">{verdict.recommended_action}</p>
+          {!verdict && !loading && (
+            <div className="p-8 rounded-2xl bg-surface/40 border border-border/40 text-center space-y-3">
+              <ScanEye className="w-12 h-12 text-slate-600 mx-auto" />
+              <p className="text-slate-400 text-xs">
+                Upload an image on the left and click "Analyze Media" to start threat scanning.
+              </p>
             </div>
           )}
-
-          <p className="text-[10px] text-slate-500 text-center">
-            {verdict.disclaimer || 'AI model output is advisory. Visual verification is recommended for final decisions.'}
-          </p>
         </div>
-      )}
-
-      {/* Info Box */}
-      <div className="p-5 rounded-2xl bg-surface border border-border space-y-3">
-        <h3 className="text-sm font-bold text-white">How it works</h3>
-        <ul className="text-xs text-slate-400 space-y-1.5 list-disc list-inside">
-          <li>Upload any image containing a human face (photo, screenshot, video frame)</li>
-          <li>Our EfficientNet-B4 model extracts facial features and checks for manipulation artifacts</li>
-          <li>Results include anomaly score, face count, and verdict with recommended action</li>
-          <li>Trained on Celeb-DF dataset · Test Accuracy 92.80% · F1 90.58% · AUC 98.59%</li>
-        </ul>
       </div>
     </div>
   );

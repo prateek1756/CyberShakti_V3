@@ -1,5 +1,6 @@
 import os
 import uuid
+import tempfile
 import joblib
 import pandas as pd
 from typing import Optional, Dict, Any
@@ -287,19 +288,34 @@ async def analyze_deepfake(
     except UploadError as exc:
         raise HTTPException(status_code=exc.status_code, detail={"error_code": exc.error_code, "message": exc.message})
 
+    # Write image bytes to temp file
     task_id = uuid.uuid4()
     safe_filename = f"media_{task_id}.bin"
     file_path = os.path.join(SCAN_UPLOAD_DIR, safe_filename)
     with open(file_path, "wb") as fh:
         fh.write(image_bytes)
 
-    detect_deepfake.delay(job_id=str(task_id), file_path=file_path)
-    return {
-        "task_id": str(task_id),
-        "status": "queued",
-        "experimental_disclaimer": "Deepfake detection is an experimental research feature.",
-        "poll_url": f"/api/v1/tasks/{task_id}/status"
-    }
+    # Run synchronously in dev mode (no Redis needed)
+    try:
+        from app.config import settings as _settings
+        from app.worker import detect_deepfake as _detect_deepfake
+        result = _detect_deepfake(job_id=str(task_id), file_path=file_path)
+        return {
+            "task_id": str(task_id),
+            "status": "complete",
+            "result": result,
+            "experimental_disclaimer": "Deepfake detection is an experimental research feature.",
+        }
+    except Exception as exc:
+        # Fallback: dispatch to Celery if eager fails
+        from app.worker import detect_deepfake as _detect_deepfake
+        detect_deepfake.delay(job_id=str(task_id), file_path=file_path)
+        return {
+            "task_id": str(task_id),
+            "status": "queued",
+            "experimental_disclaimer": "Deepfake detection is an experimental research feature.",
+            "poll_url": f"/api/v1/tasks/{task_id}/status"
+        }
 
 
 @router.post("/assess-mule-account")
@@ -308,9 +324,19 @@ async def check_mule(
     current_user: Optional[User] = Depends(get_optional_current_user)
 ):
     task_id = uuid.uuid4()
-    detect_mule_account.delay(job_id=str(task_id), account_signals=payload.account_signals)
-    return {
-        "task_id": str(task_id),
-        "status": "queued",
-        "poll_url": f"/api/v1/tasks/{task_id}/status"
-    }
+    # Run synchronously in dev mode (no Redis needed)
+    try:
+        from app.worker import detect_mule_account as _detect_mule_account
+        result = _detect_mule_account(job_id=str(task_id), account_signals=payload.account_signals)
+        return {
+            "task_id": str(task_id),
+            "status": "complete",
+            "result": result,
+        }
+    except Exception:
+        detect_mule_account.delay(job_id=str(task_id), account_signals=payload.account_signals)
+        return {
+            "task_id": str(task_id),
+            "status": "queued",
+            "poll_url": f"/api/v1/tasks/{task_id}/status"
+        }

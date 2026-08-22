@@ -110,7 +110,7 @@ async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db))
     user = User(
         email=payload.email.lower(),
         password_hash=hash_password(payload.password),
-        email_verified=False,
+        email_verified=True if settings.ENVIRONMENT.lower() == "dev" else False,
         is_active=True,
     )
     db.add(user)

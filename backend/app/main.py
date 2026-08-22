@@ -1,7 +1,8 @@
 import os
 import sys
+from contextlib import asynccontextmanager
 
-ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
@@ -14,24 +15,66 @@ from app.shared.rate_limit import RateLimitMiddleware
 
 validate_runtime_security()
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan handler: auto-create database tables & seed demo user in dev mode if using SQLite."""
+    if "sqlite" in settings.DATABASE_URL.lower():
+        try:
+            from app.shared.database import engine, AsyncSessionLocal
+            from app.shared.models import Base, User
+            from app.shared.security import hash_password
+            from sqlalchemy import select
+
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+
+            # Seed default demo account
+            async with AsyncSessionLocal() as session:
+                demo_email = "user@cybershakti.in"
+                existing = (await session.execute(select(User).where(User.email == demo_email))).scalar_one_or_none()
+                if not existing:
+                    session.add(User(
+                        email=demo_email,
+                        password_hash=hash_password("CyberShakti@123"),
+                        email_verified=True,
+                        is_active=True,
+                    ))
+                    await session.commit()
+        except Exception as exc:
+            print(f"[Lifespan] Auto-creation/seeding warning: {exc}")
+    yield
+
+
 app = FastAPI(
-    title="CyberShakti v3 API",
+    title="CyberShakti API",
     description="AI-Powered Digital Safety & Cybersecurity Platform API",
     version="1.0.0",
     docs_url="/docs" if settings.DEBUG else None,
-    redoc_url=None
+    redoc_url=None,
+    lifespan=lifespan
 )
 
+# Add RateLimitMiddleware first so CORSMiddleware runs BEFORE RateLimitMiddleware in Starlette's middleware stack
 app.add_middleware(RateLimitMiddleware)
 
-# CORS Middleware Setup
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origins,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept"],
-)
+# CORS Middleware Setup (supports localhost, 127.0.0.1, and local network IPs in dev mode)
+if settings.ENVIRONMENT.lower() == "dev":
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origin_regex=r"https?://.*",
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "Accept"],
+    )
 
 
 @app.exception_handler(RequestValidationError)

@@ -12,8 +12,8 @@ class Settings(BaseSettings):
     
     # Database Settings
     DATABASE_URL: str = Field(
-        default="postgresql+asyncpg://cybershakti_user:dev_password@localhost:5432/cybershakti_db",
-        description="Async PostgreSQL connection string"
+        default="sqlite+aiosqlite:///./cybershakti_local.db",
+        description="Async database connection string"
     )
     
     # Redis & Celery

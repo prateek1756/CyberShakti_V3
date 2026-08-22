@@ -1,30 +1,35 @@
 import React, { useState } from 'react';
-import { Banknote, AlertCircle, Loader2, ShieldX, ShieldCheck, Info } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { Banknote, AlertCircle, RefreshCw, ShieldX, ShieldCheck, Info, Network, GitCommit } from 'lucide-react';
 import { api } from '../services/api';
+import { ScanAnimation } from '../components/ScanAnimation';
+import { ThreatResultCard } from '../components/ThreatResultCard';
 
 const SIGNALS_CONFIG = [
-  { key: 'account_age_category',       label: 'Account Age',              options: [{ value: 0, label: 'Less than 6 months' }, { value: 1, label: '6–24 months' }, { value: 2, label: 'More than 2 years' }] },
-  { key: 'transaction_velocity_high',  label: 'Transaction Volume',       options: [{ value: 1, label: 'High (many rapid transfers)' }, { value: 0, label: 'Normal' }] },
-  { key: 'multiple_recipients',        label: 'Multiple Recipients',       options: [{ value: 1, label: 'Yes — sends to many accounts' }, { value: 0, label: 'No — single/few recipients' }] },
-  { key: 'pass_through',               label: 'Pass-Through Behaviour',   options: [{ value: 1, label: 'Yes — funds quickly withdrawn' }, { value: 0, label: 'No — normal spending patterns' }] },
+  { key: 'account_age_category',       label: 'Account Age',              options: [{ value: 0, label: 'Less than 6 months (New)' }, { value: 1, label: '6–24 months' }, { value: 2, label: 'More than 2 years' }] },
+  { key: 'transaction_velocity_high',  label: 'Transaction Velocity',     options: [{ value: 1, label: 'High (Rapid burst transfers)' }, { value: 0, label: 'Normal velocity' }] },
+  { key: 'multiple_recipients',        label: 'Fan-Out Recipients',       options: [{ value: 1, label: 'Yes — Fan-out to many accounts' }, { value: 0, label: 'No — Normal recipient list' }] },
+  { key: 'pass_through',               label: 'Pass-Through Pattern',   options: [{ value: 1, label: 'Yes — Rapid cash-in & cash-out' }, { value: 0, label: 'No — Normal balance retention' }] },
+];
+
+const MULE_STAGES = [
+  { id: 'input',     label: 'Ingesting banking transaction signals', duration: 300 },
+  { id: 'normalize', label: 'Constructing entity transfer graph',   duration: 500 },
+  { id: 'extract',   label: 'Evaluating velocity & pass-through', duration: 600 },
+  { id: 'model',     label: 'Running XGBoost mule classifier',   duration: 700 },
+  { id: 'risk',      label: 'Calculating anomaly probability score', duration: 400 },
 ];
 
 const DEFAULTS = Object.fromEntries(SIGNALS_CONFIG.map(s => [s.key, s.options[1].value]));
-
 const POLLING_MAX = 20;
 const POLLING_INTERVAL_MS = 1500;
-
-const BADGE_STYLES = {
-  high_risk:     { bg: 'bg-red-500/15 border-red-500/40',        text: 'text-red-300',     label: '⚠ MULE ACCOUNT DETECTED', icon: ShieldX },
-  moderate_risk: { bg: 'bg-amber-500/15 border-amber-500/40',    text: 'text-amber-300',   label: '⚠ SUSPICIOUS SIGNALS',    icon: ShieldX },
-  safe:          { bg: 'bg-emerald-500/15 border-emerald-500/40', text: 'text-emerald-300', label: '✓ LOW RISK',              icon: ShieldCheck },
-};
 
 export const MuleAccount = () => {
   const [signals, setSignals] = useState(DEFAULTS);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
+  const [currentTaskId, setCurrentTaskId] = useState(null);
 
   const handleSignalChange = (key, val) => {
     setSignals(prev => ({ ...prev, [key]: Number(val) }));
@@ -64,6 +69,7 @@ export const MuleAccount = () => {
     try {
       const res = await api.post('/detect/assess-mule-account', { account_signals: signals });
       if (res.data.task_id) {
+        setCurrentTaskId(res.data.task_id);
         pollTask(res.data.task_id);
       } else {
         setLoading(false);
@@ -77,148 +83,156 @@ export const MuleAccount = () => {
   };
 
   const verdict = result?.verdict;
-  const badge = verdict ? BADGE_STYLES[verdict.risk_level] : null;
+  const anomalyScore = result?.analysis?.anomaly_score !== undefined ? result.analysis.anomaly_score * 100 : 0;
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8 space-y-8">
+    <div className="max-w-5xl mx-auto px-4 py-10 space-y-8">
       {/* Header */}
-      <div className="space-y-2">
-        <h1 className="text-3xl font-extrabold text-white flex items-center gap-3">
-          <Banknote className="w-8 h-8 text-orange-400" />
-          Mule Account Detection
+      <div className="space-y-3">
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-orange-500/10 border border-orange-500/30 text-orange-400 text-xs font-mono font-bold">
+          <Network className="w-3.5 h-3.5" /> GRAPH & BEHAVIORAL INVESTIGATOR
+        </div>
+        <h1 className="text-3xl sm:text-4xl font-display font-extrabold text-white tracking-tight flex items-center gap-3">
+          Money Mule Account Detection
         </h1>
-        <p className="text-slate-300 text-sm">
-          Identify banking accounts being used as financial crime mule accounts using our XGBoost-based signal analysis engine (F-07).
+        <p className="text-slate-300 text-sm max-w-2xl">
+          Identify banking accounts used as financial crime money mules using our XGBoost behavioral signal analysis model.
         </p>
       </div>
 
-      {/* Info Banner */}
-      <div className="flex items-start gap-3 p-4 rounded-xl bg-orange-500/8 border border-orange-500/20">
-        <Info className="w-4 h-4 text-orange-400 flex-shrink-0 mt-0.5" />
-        <p className="text-xs text-slate-300">
-          Provide behavioural signals observed on a bank account. Our XGBoost classifier will predict whether the account pattern matches known money mule profiles used in cyber fraud.
-        </p>
+      {/* Network Investigation Graphic Visualizer */}
+      <div className="p-6 rounded-2xl bg-surface border border-border space-y-4">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-mono font-bold uppercase tracking-wider text-orange-400 flex items-center gap-2">
+            <GitCommit className="w-4 h-4" /> INVESTIGATION NODE GRAPH TOPOLOGY
+          </span>
+          <span className="text-[10px] font-mono text-slate-500">XGBoost Engine v1.0</span>
+        </div>
+
+        {/* Node Connection Flow Graphic */}
+        <div className="p-6 rounded-xl bg-background/80 border border-border flex flex-wrap items-center justify-around gap-4 text-center">
+          <div className="space-y-1">
+            <div className="w-10 h-10 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center mx-auto text-slate-300 text-xs font-mono font-bold">
+              SRC
+            </div>
+            <p className="text-[10px] font-mono text-slate-400">VICTIM ENTITY</p>
+          </div>
+
+          <div className="flex-1 max-w-[80px] h-0.5 bg-gradient-to-r from-slate-700 via-orange-500/50 to-slate-700 relative">
+            <div className="absolute top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-orange-400 animate-pulse" />
+          </div>
+
+          <div className="space-y-1">
+            <div className="w-12 h-12 rounded-full bg-orange-500/20 border border-orange-500/50 flex items-center justify-center mx-auto text-orange-300 text-xs font-mono font-bold shadow-[0_0_15px_rgba(249,115,22,0.2)]">
+              MULE
+            </div>
+            <p className="text-[10px] font-mono text-orange-400 font-bold">TARGET ACCOUNT</p>
+          </div>
+
+          <div className="flex-1 max-w-[80px] h-0.5 bg-gradient-to-r from-slate-700 via-orange-500/50 to-slate-700 relative">
+            <div className="absolute top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-orange-400 animate-pulse" />
+          </div>
+
+          <div className="space-y-1">
+            <div className="w-10 h-10 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center mx-auto text-slate-300 text-xs font-mono font-bold">
+              DEST
+            </div>
+            <p className="text-[10px] font-mono text-slate-400">OFFSHORE / CASH</p>
+          </div>
+        </div>
       </div>
 
-      {/* Signal Input Form */}
-      <form onSubmit={handleSubmit} className="p-6 rounded-2xl bg-surface border border-border space-y-6">
-        <h3 className="text-base font-bold text-white">Account Behaviour Signals</h3>
-        <div className="space-y-5">
-          {SIGNALS_CONFIG.map(({ key, label, options }) => (
-            <div key={key} className="space-y-2">
-              <label className="block text-sm font-semibold text-slate-200">{label}</label>
-              <div className="flex flex-wrap gap-3">
-                {options.map(opt => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => handleSignalChange(key, opt.value)}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium border transition-all ${
-                      signals[key] === opt.value
-                        ? 'bg-orange-500/20 border-orange-500/60 text-orange-200'
-                        : 'bg-background border-border text-slate-400 hover:border-slate-500 hover:text-slate-200'
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
+      {/* Signal Selector & Scan Stage */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* Form Signals */}
+        <form onSubmit={handleSubmit} className="p-6 rounded-2xl bg-surface border border-border space-y-6">
+          <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-slate-300">
+            ACCOUNT BEHAVIOR SIGNALS
+          </h3>
+
+          <div className="space-y-5">
+            {SIGNALS_CONFIG.map(({ key, label, options }) => (
+              <div key={key} className="space-y-2">
+                <label className="block text-xs font-semibold text-slate-200">{label}</label>
+                <div className="flex flex-wrap gap-2">
+                  {options.map(opt => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => handleSignalChange(key, opt.value)}
+                      className={`px-3.5 py-2 rounded-lg text-xs font-bold border transition-all ${
+                        signals[key] === opt.value
+                          ? 'bg-orange-500/20 border-orange-500/60 text-orange-200 shadow-md'
+                          : 'bg-background border-border text-slate-400 hover:border-slate-500'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
-
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full py-3.5 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-bold flex items-center justify-center gap-2 disabled:opacity-40 transition-all"
-          id="mule-analyze-btn"
-        >
-          {loading ? (
-            <>
-              <Loader2 className="w-5 h-5 animate-spin" />
-              Running XGBoost Classifier…
-            </>
-          ) : (
-            <>
-              <Banknote className="w-5 h-5" />
-              Assess Account Risk
-            </>
-          )}
-        </button>
-      </form>
-
-      {/* Error */}
-      {error && (
-        <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-sm flex items-start gap-3">
-          <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-          <span>{error}</span>
-        </div>
-      )}
-
-      {/* Verdict Card */}
-      {verdict && badge && (
-        <div className={`p-6 rounded-2xl border space-y-5 ${badge.bg}`}>
-          {/* Verdict Header */}
-          <div className="flex items-center gap-4">
-            <div className={`p-3 rounded-xl border ${badge.bg}`}>
-              {React.createElement(badge.icon, { className: `w-7 h-7 ${badge.text}` })}
-            </div>
-            <div>
-              <span className={`text-xs uppercase tracking-widest font-bold ${badge.text}`}>
-                {badge.label}
-              </span>
-              <p className="text-white font-bold text-lg">{verdict.risk_label || verdict.risk_level}</p>
-            </div>
+            ))}
           </div>
 
-          {/* Metrics Row */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="p-4 rounded-xl bg-background/60 border border-border text-center space-y-1">
-              <p className="text-xs uppercase tracking-wider text-slate-400">Anomaly Score</p>
-              <p className={`text-2xl font-extrabold ${badge.text}`}>
-                {result?.analysis?.anomaly_score !== undefined
-                  ? (result.analysis.anomaly_score * 100).toFixed(1) + '%'
-                  : '—'}
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full py-4 rounded-xl bg-orange-500 hover:bg-orange-400 text-black font-display font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 disabled:opacity-40 transition-all shadow-[0_0_20px_rgba(249,115,22,0.25)]"
+            id="mule-analyze-btn"
+          >
+            {loading ? (
+              <>
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                Evaluating Behavioral Features…
+              </>
+            ) : (
+              <>
+                <Banknote className="w-4 h-4" />
+                Assess Mule Account Risk
+              </>
+            )}
+          </button>
+        </form>
+
+        {/* Right Output */}
+        <div className="space-y-6">
+          <ScanAnimation
+            isActive={loading}
+            scanId={currentTaskId}
+            stages={MULE_STAGES}
+            accentColor="orange"
+          />
+
+          {error && (
+            <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-xs flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          {verdict && !loading && (
+            <ThreatResultCard
+              verdict={verdict}
+              confidence={anomalyScore}
+              threatType={verdict.risk_level === 'safe' ? 'Low Risk Account' : 'Money Mule Account Pattern'}
+              scanId={currentTaskId}
+              extraMetrics={[
+                { label: 'Mule Anomaly Score', value: `${anomalyScore.toFixed(1)}%`, sub: 'XGBoost probability' },
+                { label: 'Classifier Engine', value: 'XGBoost', sub: 'Behavioral model' },
+                { label: 'Risk Band', value: verdict.risk_level?.toUpperCase() || 'SAFE', sub: 'Threat level' }
+              ]}
+            />
+          )}
+
+          {!verdict && !loading && (
+            <div className="p-12 rounded-2xl bg-surface/40 border border-border/40 text-center space-y-3">
+              <Network className="w-12 h-12 text-slate-600 mx-auto" />
+              <p className="text-slate-400 text-xs">
+                Configure account behavioral signals on the left and click "Assess Mule Account Risk".
               </p>
-              <p className="text-[10px] text-slate-500">Mule probability</p>
-            </div>
-            <div className="p-4 rounded-xl bg-background/60 border border-border text-center space-y-1">
-              <p className="text-xs uppercase tracking-wider text-slate-400">Model</p>
-              <p className="text-xs font-bold text-slate-200 leading-tight mt-1">XGBoost<br/>Classifier</p>
-              <p className="text-[10px] text-slate-500">Behavioural signals</p>
-            </div>
-          </div>
-
-          {/* Explanation */}
-          {verdict.explanation && (
-            <div className="p-4 rounded-xl bg-background/60 border border-border space-y-1">
-              <p className="text-xs uppercase tracking-wider text-slate-400 font-semibold">Analysis</p>
-              <p className="text-slate-200 text-sm">{verdict.explanation}</p>
             </div>
           )}
-
-          {/* Recommended Action */}
-          {verdict.recommended_action && (
-            <div className="p-4 rounded-xl bg-background/60 border border-border space-y-1">
-              <p className="text-xs uppercase tracking-wider text-slate-400 font-semibold">Recommended Action</p>
-              <p className="text-slate-200 text-sm">{verdict.recommended_action}</p>
-            </div>
-          )}
-
-          <p className="text-[10px] text-slate-500 text-center">
-            {verdict.disclaimer || 'Mule account detection uses XGBoost trained on synthetic financial crime behavioural datasets.'}
-          </p>
         </div>
-      )}
-
-      {/* Info Box */}
-      <div className="p-5 rounded-2xl bg-surface border border-border space-y-3">
-        <h3 className="text-sm font-bold text-white">What is a Mule Account?</h3>
-        <p className="text-xs text-slate-400 leading-relaxed">
-          A money mule account is a bank account used by cybercriminals to receive and quickly transfer stolen funds. 
-          Account holders may be witting (complicit) or unwitting (recruited as fake job candidates). 
-          This tool analyses behavioural signals to flag accounts showing patterns consistent with mule usage.
-        </p>
       </div>
     </div>
   );

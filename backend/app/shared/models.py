@@ -3,9 +3,9 @@ from datetime import datetime, timezone
 from typing import Optional, List
 from sqlalchemy import (
     Column, String, Boolean, DateTime, ForeignKey, Integer, SmallInteger,
-    Numeric, Text, Table, Index, UniqueConstraint, LargeBinary
+    Numeric, Text, Table, Index, UniqueConstraint, LargeBinary, JSON, Uuid
 )
-from sqlalchemy.dialects.postgresql import UUID, JSONB, INET, ARRAY
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.shared.database import Base
 
@@ -14,10 +14,15 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+# Cross-database compatible column types
+UUID_TYPE = Uuid(as_uuid=True).with_variant(PG_UUID(as_uuid=True), "postgresql")
+JSON_TYPE = JSON().with_variant(JSONB, "postgresql")
+
+
 class User(Base):
     __tablename__ = "users"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(UUID_TYPE, primary_key=True, default=uuid.uuid4)
     email: Mapped[str] = mapped_column(String(320), nullable=False, unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(512), nullable=False)
     email_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -40,8 +45,8 @@ class User(Base):
 class RefreshToken(Base):
     __tablename__ = "refresh_tokens"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    id: Mapped[uuid.UUID] = mapped_column(UUID_TYPE, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID_TYPE, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     token_hash: Mapped[str] = mapped_column(String(512), nullable=False, unique=True, index=True)
     issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -55,8 +60,8 @@ class RefreshToken(Base):
 class TOTPSecret(Base):
     __tablename__ = "totp_secrets"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True)
+    id: Mapped[uuid.UUID] = mapped_column(UUID_TYPE, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID_TYPE, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True)
     secret: Mapped[str] = mapped_column(Text, nullable=False)  # Encrypted secret string
     enrolled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
     algorithm: Mapped[str] = mapped_column(String(10), nullable=False, default="SHA1")
@@ -69,8 +74,8 @@ class TOTPSecret(Base):
 class BackupCode(Base):
     __tablename__ = "backup_codes"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    id: Mapped[uuid.UUID] = mapped_column(UUID_TYPE, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID_TYPE, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     code_hash: Mapped[str] = mapped_column(String(512), nullable=False)
     used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
@@ -81,8 +86,8 @@ class BackupCode(Base):
 class PasswordResetToken(Base):
     __tablename__ = "password_reset_tokens"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(UUID_TYPE, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID_TYPE, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     token_hash: Mapped[str] = mapped_column(String(512), nullable=False, unique=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -92,8 +97,8 @@ class PasswordResetToken(Base):
 class EmailVerificationToken(Base):
     __tablename__ = "email_verification_tokens"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(UUID_TYPE, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID_TYPE, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     token_hash: Mapped[str] = mapped_column(String(512), nullable=False, unique=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -103,8 +108,8 @@ class EmailVerificationToken(Base):
 class ScanResult(Base):
     __tablename__ = "scan_results"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    id: Mapped[uuid.UUID] = mapped_column(UUID_TYPE, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID_TYPE, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     feature_id: Mapped[str] = mapped_column(String(10), nullable=False, index=True)  # F-01 through F-08
     input_type: Mapped[str] = mapped_column(String(20), nullable=False)
     input_hash: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
@@ -112,7 +117,7 @@ class ScanResult(Base):
     risk_score_raw: Mapped[Optional[float]] = mapped_column(Numeric(5, 4), nullable=True)
     verdict_source: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     is_experimental: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    task_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
+    task_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID_TYPE, nullable=True, index=True)
     task_status: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, default="queued")
     scanned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now, index=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -124,8 +129,8 @@ class ScanResult(Base):
 class RiskScoreSnapshot(Base):
     __tablename__ = "risk_score_snapshots"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    id: Mapped[uuid.UUID] = mapped_column(UUID_TYPE, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID_TYPE, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     score: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
     signal_count: Mapped[int] = mapped_column(SmallInteger, nullable=False)
@@ -137,10 +142,10 @@ class RiskScoreSnapshot(Base):
 class RiskScoreSignal(Base):
     __tablename__ = "risk_score_signals"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    snapshot_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("risk_score_snapshots.id", ondelete="CASCADE"), nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(UUID_TYPE, primary_key=True, default=uuid.uuid4)
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(UUID_TYPE, ForeignKey("risk_score_snapshots.id", ondelete="CASCADE"), nullable=False)
     signal_name: Mapped[str] = mapped_column(String(100), nullable=False)
-    signal_value: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    signal_value: Mapped[dict] = mapped_column(JSON_TYPE, nullable=False)
     contribution_direction: Mapped[str] = mapped_column(String(10), nullable=False)
     weight: Mapped[float] = mapped_column(Numeric(4, 3), nullable=False)
 
@@ -150,7 +155,7 @@ class RiskScoreSignal(Base):
 class KnowledgeBaseDocument(Base):
     __tablename__ = "knowledge_base_documents"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(UUID_TYPE, primary_key=True, default=uuid.uuid4)
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     source: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     source_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -164,8 +169,8 @@ class KnowledgeBaseDocument(Base):
 class AssistantConversation(Base):
     __tablename__ = "assistant_conversations"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    id: Mapped[uuid.UUID] = mapped_column(UUID_TYPE, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID_TYPE, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
     last_message_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
@@ -176,8 +181,8 @@ class AssistantConversation(Base):
 class AssistantMessage(Base):
     __tablename__ = "assistant_messages"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    conversation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("assistant_conversations.id", ondelete="CASCADE"), nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(UUID_TYPE, primary_key=True, default=uuid.uuid4)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(UUID_TYPE, ForeignKey("assistant_conversations.id", ondelete="CASCADE"), nullable=False)
     role: Mapped[str] = mapped_column(String(20), nullable=False)  # user or assistant
     content: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
@@ -188,7 +193,7 @@ class AssistantMessage(Base):
 class ScamAlert(Base):
     __tablename__ = "scam_alerts"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(UUID_TYPE, primary_key=True, default=uuid.uuid4)
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     alert_type: Mapped[str] = mapped_column(String(50), nullable=False)
@@ -207,7 +212,7 @@ class ScamAlert(Base):
 class SafetyTip(Base):
     __tablename__ = "safety_tips"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(UUID_TYPE, primary_key=True, default=uuid.uuid4)
     tip_text: Mapped[str] = mapped_column(Text, nullable=False)
     category: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
@@ -218,7 +223,7 @@ class SafetyTip(Base):
 class QuizQuestion(Base):
     __tablename__ = "quiz_questions"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(UUID_TYPE, primary_key=True, default=uuid.uuid4)
     question_text: Mapped[str] = mapped_column(Text, nullable=False)
     explanation: Mapped[str] = mapped_column(Text, nullable=False)
     category: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -231,8 +236,8 @@ class QuizQuestion(Base):
 class QuizOption(Base):
     __tablename__ = "quiz_options"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    question_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("quiz_questions.id", ondelete="CASCADE"), nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(UUID_TYPE, primary_key=True, default=uuid.uuid4)
+    question_id: Mapped[uuid.UUID] = mapped_column(UUID_TYPE, ForeignKey("quiz_questions.id", ondelete="CASCADE"), nullable=False)
     option_text: Mapped[str] = mapped_column(Text, nullable=False)
     is_correct: Mapped[bool] = mapped_column(Boolean, nullable=False)
     display_order: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=1)
@@ -243,7 +248,7 @@ class QuizOption(Base):
 class Article(Base):
     __tablename__ = "articles"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(UUID_TYPE, primary_key=True, default=uuid.uuid4)
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     slug: Mapped[str] = mapped_column(String(500), nullable=False, unique=True, index=True)
     content: Mapped[str] = mapped_column(Text, nullable=False)
@@ -259,8 +264,8 @@ class AuditLog(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     event_type: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
-    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
+    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID_TYPE, nullable=True, index=True)
     ip_address: Mapped[Optional[str]] = mapped_column(String(45), nullable=True)
     user_agent: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    event_detail: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    event_detail: Mapped[Optional[dict]] = mapped_column(JSON_TYPE, nullable=True)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now, index=True)
