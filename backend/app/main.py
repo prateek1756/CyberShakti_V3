@@ -66,6 +66,7 @@ if settings.ENVIRONMENT.lower() == "dev":
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["Content-Disposition", "Content-Type", "Content-Length"],
     )
 else:
     app.add_middleware(
@@ -74,6 +75,7 @@ else:
         allow_credentials=True,
         allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "Accept"],
+        expose_headers=["Content-Disposition", "Content-Type", "Content-Length"],
     )
 
 

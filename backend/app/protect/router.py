@@ -1,11 +1,12 @@
 import io
 import math
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.config import settings
-from app.shared.auth import get_current_user
+from app.shared.auth import get_current_user, get_optional_current_user
 from app.shared.models import User
 from app.shared.file_crypto import (
     FileCryptoError,
@@ -28,7 +29,7 @@ class PasswordCheckRequest(BaseModel):
 @router.post("/check-phone")
 async def check_phone(
     payload: PhoneCheckRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: Optional[User] = Depends(get_optional_current_user)
 ):
     raw_num = payload.phone_number.strip().replace(" ", "").replace("-", "")
     
@@ -91,7 +92,7 @@ async def check_phone(
 @router.post("/check-password")
 async def check_password(
     payload: PasswordCheckRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: Optional[User] = Depends(get_optional_current_user)
 ):
     pwd = payload.password
     length = len(pwd)
@@ -143,7 +144,7 @@ async def check_password(
 async def encrypt_file(
     file: UploadFile = File(...),
     password: str = Form(...),
-    current_user: User = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_optional_current_user),
 ):
     if not password or not password.strip():
         raise HTTPException(
@@ -172,7 +173,7 @@ async def encrypt_file(
 async def decrypt_file(
     file: UploadFile = File(...),
     password: str = Form(...),
-    current_user: User = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_optional_current_user),
 ):
     if not password:
         raise HTTPException(

@@ -2,7 +2,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from app.main import app
 from tests.conftest import auth_headers
-from ml.pipelines.train_f01_phishing_url import extract_url_features
+from app.detect_analyze.url import extract_url_features
 
 
 @pytest.mark.asyncio

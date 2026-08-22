@@ -17,7 +17,8 @@ from app.shared.qrdecode import decode_qr_payload
 from app.worker import (
     run_screenshot_ocr, assess_fake_profile, detect_deepfake, detect_mule_account
 )
-from ml.pipelines.train_f01_phishing_url import extract_url_features
+from app.detect_analyze.url import extract_url_features, feature_vector
+import numpy as np
 
 # Upload directory for temporary scan files
 SCAN_UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "scan-uploads")
@@ -70,12 +71,12 @@ async def scan_url(
             detail={"error_code": "VALIDATION_ERROR", "message": "Input must be a valid http or https URL string."}
         )
 
-    # Extract 17 lexical & domain features for F-01
+    # Extract 19 lexical & domain features for F-01
     feats = extract_url_features(url_str)
     
     if f01_model is not None:
-        df_feat = pd.DataFrame([feats])
-        prob = float(f01_model.predict_proba(df_feat)[0, 1])
+        X = np.array([feature_vector(feats)])
+        prob = float(f01_model.predict_proba(X)[0, 1])
     else:
         is_phishing = any(sub in url_str.lower() for sub in ["kyc", "verify", "bank", "bit.ly", "login-update", "reward"])
         prob = 0.89 if is_phishing else 0.05
@@ -109,11 +110,13 @@ async def scan_url(
         await db.commit()
         scan_id_val = str(scan_rec.id)
     except Exception:
+        if db:
+            await db.rollback()
         scan_id_val = str(uuid.uuid4())
 
     return {
         "scan_id": scan_id_val,
-        "input": {"url_submitted": url_str, "url_normalised": url_str.lower()},
+        "input": {"url_submitted": payload.url.strip(), "url_normalised": url_str.lower()},
         "verdict": explanation_data,
         "url_features": feats
     }

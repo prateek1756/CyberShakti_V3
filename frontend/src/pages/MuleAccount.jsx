@@ -124,15 +124,7 @@ const TopologyGraph = ({ graphData, onSelectNode, selectedNodeId }) => {
         return {
           id: node.id,
           label: node.id.length > 10 ? node.id.slice(0, 9) + '…' : node.id,
-          title: `<div style="font-family:monospace;padding:10px;background:#0f172a;border:1px solid #334155;border-radius:8px;min-width:180px;color:#f8fafc">
-            <div style="font-size:9px;color:#64748b;text-transform:uppercase;letter-spacing:2px;margin-bottom:4px">${node.role?.replace('_', ' ')}</div>
-            <div style="font-weight:bold;color:#60a5fa;margin-bottom:8px">${node.id}</div>
-            <div style="display:flex;gap:12px;font-size:11px;border-top:1px solid #1e293b;padding-top:6px">
-              <span><b style="color:#94a3b8">IN:</b> ${node.in_degree || 0}</span>
-              <span><b style="color:#94a3b8">OUT:</b> ${node.out_degree || 0}</span>
-              <span><b style="color:#f97316">BTW:</b> ${Number(node.betweenness_centrality || 0).toFixed(2)}</span>
-            </div>
-          </div>`,
+          title: node.id,
           color: {
             background: cfg.color + '33',
             border: cfg.color,

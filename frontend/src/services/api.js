@@ -10,10 +10,7 @@ const getApiBaseUrl = () => {
 
 export const api = axios.create({
   baseURL: getApiBaseUrl(),
-  timeout: 12000,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  timeout: 30000,
 });
 
 // Interceptor to inject JWT access token into request headers
@@ -24,7 +21,13 @@ api.interceptors.request.use(
       config.headers.Authorization = `Bearer ${token}`;
     }
     if (config.data instanceof FormData) {
-      delete config.headers['Content-Type'];
+      if (typeof config.headers?.delete === 'function') {
+        config.headers.delete('Content-Type');
+        config.headers.delete('content-type');
+      } else if (config.headers) {
+        delete config.headers['Content-Type'];
+        delete config.headers['content-type'];
+      }
     }
     return config;
   },
