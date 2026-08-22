@@ -150,10 +150,11 @@ export const ThreatResultCard = ({
           {confidence !== undefined && (
             <div className="text-center">
               <RiskMeter
-                value={Math.min(confidence, 100)}
+                value={Number((Math.min(confidence, 100) / 10).toFixed(1))}
+                maxValue={10}
                 size={120}
                 color={config.colors.meter}
-                sublabel="/ 100"
+                sublabel="/ 10"
               />
               <p className="text-xs text-slate-400 mt-1">Confidence</p>
             </div>

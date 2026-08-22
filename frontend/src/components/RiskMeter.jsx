@@ -20,7 +20,7 @@ export const RiskMeter = ({ value = 0, maxValue = 100, size = 180, label, sublab
   const resolved = color || getColor(value);
 
   const motionVal = useMotionValue(0);
-  const displayVal = useTransform(motionVal, v => Math.round(v));
+  const displayVal = useTransform(motionVal, v => (maxValue <= 10 ? v.toFixed(1) : Math.round(v)));
   const dashOffset = useTransform(motionVal, v => {
     const pct = Math.min(v / maxValue, 1);
     return circumference - pct * circumference * 0.75; // 270deg arc
