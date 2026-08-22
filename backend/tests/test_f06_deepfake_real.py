@@ -26,8 +26,9 @@ from ml.pipelines.train_f06_efficientnet import DeepfakeEfficientNetDetector
 from app.worker import _preprocess_image_for_efficientnet, detect_deepfake
 from tests.conftest import auth_headers
 
-MODEL_PATH = os.path.join("ml", "models", "f06_efficientnet_b4.pth")
-METRICS_PATH = os.path.join("ml", "models", "f06_efficientnet_metrics.json")
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+MODEL_PATH = os.path.join(ROOT_DIR, "ml", "models", "f06_efficientnet_b4.pth") if os.path.exists(os.path.join(ROOT_DIR, "ml", "models", "f06_efficientnet_b4.pth")) else os.path.join("ml", "models", "f06_efficientnet_b4.pth")
+METRICS_PATH = os.path.join(ROOT_DIR, "ml", "models", "f06_efficientnet_metrics.json") if os.path.exists(os.path.join(ROOT_DIR, "ml", "models", "f06_efficientnet_metrics.json")) else os.path.join("ml", "models", "f06_efficientnet_metrics.json")
 
 
 def make_png_bytes(color="red", size=224) -> bytes:

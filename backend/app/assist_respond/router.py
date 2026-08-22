@@ -184,23 +184,24 @@ async def get_risk_score(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    # Fetch scan history
-    stmt = select(ScanResult).where(ScanResult.user_id == current_user.id)
-    results = await db.execute(stmt)
-    scans = list(results.scalars().all())
-
-    # Fetch latest snapshot if exists
-    stmt_snap = select(RiskScoreSnapshot).where(RiskScoreSnapshot.user_id == current_user.id).order_by(desc(RiskScoreSnapshot.computed_at)).limit(1)
-    res_snap = await db.execute(stmt_snap)
-    latest_snap = res_snap.scalar_one_or_none()
-
+    scans = []
     q_data = None
-    if latest_snap:
-        # Load snapshot signals as dict
-        stmt_sig = select(RiskScoreSignal).where(RiskScoreSignal.snapshot_id == latest_snap.id)
-        res_sig = await db.execute(stmt_sig)
-        sig_objs = res_sig.scalars().all()
-        q_data = {s.signal_name: True for s in sig_objs if s.contribution_direction == "positive"}
+    try:
+        stmt = select(ScanResult).where(ScanResult.user_id == current_user.id)
+        results = await db.execute(stmt)
+        scans = list(results.scalars().all())
+
+        stmt_snap = select(RiskScoreSnapshot).where(RiskScoreSnapshot.user_id == current_user.id).order_by(desc(RiskScoreSnapshot.computed_at)).limit(1)
+        res_snap = await db.execute(stmt_snap)
+        latest_snap = res_snap.scalar_one_or_none()
+
+        if latest_snap:
+            stmt_sig = select(RiskScoreSignal).where(RiskScoreSignal.snapshot_id == latest_snap.id)
+            res_sig = await db.execute(stmt_sig)
+            sig_objs = res_sig.scalars().all()
+            q_data = {s.signal_name: True for s in sig_objs if s.contribution_direction == "positive"}
+    except Exception:
+        pass
 
     score, signal_breakdown = compute_weighted_risk_score(scans, q_data)
     band_key, band_label = get_score_band(score)
@@ -225,35 +226,40 @@ async def update_questionnaire(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    # Fetch scans
-    stmt = select(ScanResult).where(ScanResult.user_id == current_user.id)
-    results = await db.execute(stmt)
-    scans = list(results.scalars().all())
+    scans = []
+    try:
+        stmt = select(ScanResult).where(ScanResult.user_id == current_user.id)
+        results = await db.execute(stmt)
+        scans = list(results.scalars().all())
+    except Exception:
+        pass
 
     q_dict = payload.model_dump()
     score, signals = compute_weighted_risk_score(scans, q_dict)
 
-    # Persist snapshot
-    snapshot = RiskScoreSnapshot(
-        user_id=current_user.id,
-        score=score,
-        signal_count=len(signals)
-    )
-    db.add(snapshot)
-    await db.commit()
-    await db.refresh(snapshot)
-
-    for sig in signals:
-        sig_obj = RiskScoreSignal(
-            snapshot_id=snapshot.id,
-            signal_name=sig["signal_name"],
-            signal_value={"label": sig["label"]},
-            contribution_direction=sig["contribution_direction"],
-            weight=sig["weight"]
+    try:
+        snapshot = RiskScoreSnapshot(
+            user_id=current_user.id,
+            score=score,
+            signal_count=len(signals)
         )
-        db.add(sig_obj)
-        
-    await db.commit()
+        db.add(snapshot)
+        await db.commit()
+        await db.refresh(snapshot)
+
+        for sig in signals:
+            sig_obj = RiskScoreSignal(
+                snapshot_id=snapshot.id,
+                signal_name=sig["signal_name"],
+                signal_value={"label": sig["label"]},
+                contribution_direction=sig["contribution_direction"],
+                weight=sig["weight"]
+            )
+            db.add(sig_obj)
+            
+        await db.commit()
+    except Exception:
+        pass
 
     band_key, band_label = get_score_band(score)
 

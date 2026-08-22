@@ -49,13 +49,15 @@ export const Home = () => {
             <div className="p-3 bg-blue-500/10 text-blue-400 rounded-xl w-fit border border-blue-500/20">
               <Shield className="w-6 h-6" />
             </div>
-            <h3 className="text-xl font-bold text-white">Detect & Analyze</h3>
+            <h3 className="text-xl font-bold text-white">Detect &amp; Analyze</h3>
             <p className="text-slate-300 text-sm leading-relaxed">
-              Identify phishing links, fake KYC messages, fraudulent QR codes, and suspicious profile signals using AI classifiers.
+              Identify phishing links, scam messages, deepfake media, and money mule bank accounts using AI classifiers trained on real Indian threat data.
             </p>
             <div className="pt-2 flex flex-wrap gap-2">
               <Link to="/detect/phishing-link" className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-800 text-slate-200 hover:text-white border border-slate-700">Link Scanner</Link>
               <Link to="/detect/message-scan" className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-800 text-slate-200 hover:text-white border border-slate-700">Message Scan</Link>
+              <Link to="/detect/deepfake" className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-cyan-800/50 text-cyan-200 hover:text-white border border-cyan-700/50">🎭 Deepfake Scan</Link>
+              <Link to="/detect/mule-account" className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-orange-800/40 text-orange-200 hover:text-white border border-orange-700/40">💳 Mule Account</Link>
             </div>
           </div>
 

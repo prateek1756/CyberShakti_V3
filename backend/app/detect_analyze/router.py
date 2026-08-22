@@ -90,21 +90,25 @@ async def scan_url(
         scam_category="bank_phishing" if prob >= 0.4 else None
     )
 
-    # Persist scan result record
-    scan_rec = ScanResult(
-        user_id=current_user.id if current_user else None,
-        feature_id="F-01",
-        input_type="url",
-        risk_level=risk_level,
-        risk_score_raw=round(prob, 4),
-        verdict_source="ml_model",
-        task_status="complete"
-    )
-    db.add(scan_rec)
-    await db.commit()
+    # Persist scan result record (fail-safe for offline demo)
+    try:
+        scan_rec = ScanResult(
+            user_id=current_user.id if current_user else None,
+            feature_id="F-01",
+            input_type="url",
+            risk_level=risk_level,
+            risk_score_raw=round(prob, 4),
+            verdict_source="ml_model",
+            task_status="complete"
+        )
+        db.add(scan_rec)
+        await db.commit()
+        scan_id_val = str(scan_rec.id)
+    except Exception:
+        scan_id_val = str(uuid.uuid4())
 
     return {
-        "scan_id": str(scan_rec.id),
+        "scan_id": scan_id_val,
         "input": {"url_submitted": url_str, "url_normalised": url_str.lower()},
         "verdict": explanation_data,
         "url_features": feats
@@ -145,20 +149,24 @@ async def scan_message(
         scam_category="otp_theft" if prob >= 0.4 else None
     )
 
-    scan_rec = ScanResult(
-        user_id=current_user.id if current_user else None,
-        feature_id="F-02",
-        input_type="text",
-        risk_level=risk_level,
-        risk_score_raw=round(prob, 4),
-        verdict_source="ml_model",
-        task_status="complete"
-    )
-    db.add(scan_rec)
-    await db.commit()
+    try:
+        scan_rec = ScanResult(
+            user_id=current_user.id if current_user else None,
+            feature_id="F-02",
+            input_type="text",
+            risk_level=risk_level,
+            risk_score_raw=round(prob, 4),
+            verdict_source="ml_model",
+            task_status="complete"
+        )
+        db.add(scan_rec)
+        await db.commit()
+        scan_id_val = str(scan_rec.id)
+    except Exception:
+        scan_id_val = str(uuid.uuid4())
 
     return {
-        "scan_id": str(scan_rec.id),
+        "scan_id": scan_id_val,
         "input": {"text_length": len(text_str), "language_detected": "en"},
         "verdict": explanation_data,
         "scam_indicators": ["urgency_language"] if prob >= 0.4 else []

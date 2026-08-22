@@ -10,6 +10,8 @@ import { PasswordCheck } from './pages/PasswordCheck';
 import { FileEncrypt } from './pages/FileEncrypt';
 import { RiskScore } from './pages/RiskScore';
 import { SafetyHub } from './pages/SafetyHub';
+import { DeepfakeScan } from './pages/DeepfakeScan';
+import { MuleAccount } from './pages/MuleAccount';
 import { Login } from './pages/Login';
 import { Register } from './pages/Register';
 
@@ -25,6 +27,8 @@ export function App() {
               <Route path="/detect" element={<PhishingScan />} />
               <Route path="/detect/phishing-link" element={<PhishingScan />} />
               <Route path="/detect/message-scan" element={<MessageScan />} />
+              <Route path="/detect/deepfake" element={<DeepfakeScan />} />
+              <Route path="/detect/mule-account" element={<MuleAccount />} />
               <Route path="/protect" element={<PasswordCheck />} />
               <Route path="/protect/password-check" element={<PasswordCheck />} />
               <Route path="/protect/file-encryption" element={<FileEncrypt />} />
