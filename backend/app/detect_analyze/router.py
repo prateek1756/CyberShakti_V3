@@ -275,8 +275,8 @@ async def scan_qr(
         # Route URL payload through the F-01 phishing model
         feats = extract_url_features(payload_stripped)
         if f01_model is not None:
-            df_feat = pd.DataFrame([feats])
-            prob = float(f01_model.predict_proba(df_feat)[0, 1])
+            X = np.array([feature_vector(feats)])
+            prob = float(f01_model.predict_proba(X)[0, 1])
         else:
             is_phishing = any(sub in payload_stripped.lower() for sub in ["kyc", "verify", "bank", "bit.ly", "login-update", "reward"])
             prob = 0.89 if is_phishing else 0.05
@@ -307,6 +307,8 @@ async def scan_qr(
             await db.commit()
             scan_id_val = str(scan_rec.id)
         except Exception:
+            if db:
+                await db.rollback()
             scan_id_val = str(uuid.uuid4())
 
         return {
