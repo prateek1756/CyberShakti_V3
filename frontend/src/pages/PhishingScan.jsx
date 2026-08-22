@@ -741,7 +741,7 @@ export const PhishingScan = () => {
           extraMetrics={[
             {
               label: 'Threat Score',
-              value: `${scanResponse.risk_score ?? confidenceScore}/100`,
+              value: `${((scanResponse.risk_score ?? confidenceScore) / 10).toFixed(1)}/10`,
               sub: 'Calibrated multi-signal'
             },
             {
