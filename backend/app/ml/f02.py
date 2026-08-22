@@ -111,10 +111,49 @@ def infer_text(text: str) -> Dict[str, Any]:
     # Hard-rule signal detection (exact phrase matching)
     scam_signals = [signal for phrase, signal in HARD_SCAM_SIGNALS.items() if phrase in lower]
 
+    # Secondary urgency / threat keywords that amplify scam confidence
+    URGENCY_AMPLIFIERS = (
+        "blocked", "suspended", "deactivated", "disconnected", "expired",
+        "immediately", "within 24 hours", "last chance", "won't be able",
+        "penalty", "action required", "verify now", "claim your", "congratulations"
+    )
+    has_urgency = any(kw in lower for kw in URGENCY_AMPLIFIERS)
+
     # Legit context detection (reduce FP for transactional messages)
     has_legit_context = any(ctx in lower for ctx in LEGIT_CONTEXTS)
 
     prob = _get_ml_prob(cleaned)
+
+    # ── Hard-rule direct classification (bypass ML threshold) ──────────────
+    # If a confirmed scam phrase AND an urgency amplifier are both present,
+    # classify as FRAUD_SCAM immediately without requiring high ML probability.
+    if scam_signals and has_urgency and not has_legit_context:
+        classification = "FRAUD_SCAM"
+        risk_level = "high_risk"
+        source = "hard_rule+ml_model" if prob is not None else "hard_rule"
+        note = "Confirmed scam phrase + urgency indicator triggered hard-rule classification."
+        model_loaded = prob is not None
+        primary_category = scam_signals[0]
+        verdict = generate_explanation(
+            feature_id="F-02",
+            risk_level=risk_level,
+            signals=scam_signals,
+            scam_category=primary_category,
+        )
+        return {
+            "verdict": verdict,
+            "probability": prob,
+            "classification": classification,
+            "risk_level": risk_level,
+            "scam_signals": scam_signals,
+            "has_legit_context": has_legit_context,
+            "verdict_source": source,
+            "model_note": note,
+            "model_loaded": model_loaded,
+            "language_detected": "undetermined",
+            "evaluation": _metrics,
+            "text_length": len(cleaned),
+        }
 
     if prob is not None:
         # Adjust threshold upward if trusted context present (reduce FP)

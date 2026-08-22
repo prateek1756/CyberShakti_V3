@@ -154,26 +154,27 @@ async def scan_message(
             detail={"error_code": "VALIDATION_ERROR", "message": "Text cannot be empty."}
         )
 
-    # Run trained F-02 NLP pipeline
-    if f02_pipeline is not None:
-        prob = float(f02_pipeline.predict_proba([text_str])[0, 1])
-    else:
-        is_scam = any(w in text_str.lower() for w in ["otp", "kyc", "blocked", "lottery", "winner", "prize", "urgent"])
-        prob = 0.92 if is_scam else 0.02
+    # Run trained F-02 TF-IDF + XGBoost NLP pipeline via the canonical inference module
+    from app.ml.f02 import infer_text
 
-    if prob >= 0.7:
-        risk_level = "high_risk"
-    elif prob >= 0.4:
-        risk_level = "moderate_risk"
-    else:
-        risk_level = "safe"
+    try:
+        f02_res = infer_text(text_str)
+    except ValueError as val_err:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error_code": "VALIDATION_ERROR", "message": str(val_err)}
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error_code": "TEXT_SCAN_FAILED", "message": f"Text analysis failed: {str(exc)}"}
+        )
 
-    explanation_data = generate_explanation(
-        feature_id="F-02",
-        risk_level=risk_level,
-        signals=["urgency_language", "credential_phishing_tokens"] if prob >= 0.4 else None,
-        scam_category="otp_theft" if prob >= 0.4 else None
-    )
+    prob = f02_res.get("probability")
+    risk_level = f02_res.get("risk_level", "safe")
+    classification = f02_res.get("classification", "LEGITIMATE")
+    scam_signals = f02_res.get("scam_signals", [])
+    explanation_data = f02_res.get("verdict", {})
 
     try:
         scan_rec = ScanResult(
@@ -181,8 +182,8 @@ async def scan_message(
             feature_id="F-02",
             input_type="text",
             risk_level=risk_level,
-            risk_score_raw=round(prob, 4),
-            verdict_source="ml_model",
+            risk_score_raw=round(prob, 4) if prob is not None else 0.0,
+            verdict_source=f02_res.get("verdict_source", "ml_model"),
             task_status="complete"
         )
         db.add(scan_rec)
@@ -193,10 +194,20 @@ async def scan_message(
 
     return {
         "scan_id": scan_id_val,
-        "input": {"text_length": len(text_str), "language_detected": "en"},
+        "input": {
+            "text_length": f02_res.get("text_length", len(text_str)),
+            "language_detected": f02_res.get("language_detected", "undetermined"),
+        },
         "verdict": explanation_data,
-        "scam_indicators": ["urgency_language"] if prob >= 0.4 else []
+        "classification": classification,
+        "risk_level": risk_level,
+        "probability": prob,
+        "scam_signals": scam_signals,
+        "model_note": f02_res.get("model_note"),
+        "model_loaded": f02_res.get("model_loaded", False),
+        "evaluation": f02_res.get("evaluation"),
     }
+
 
 
 @router.post("/scan-screenshot")
