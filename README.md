@@ -446,12 +446,12 @@ Copy `backend/.env.example` to `backend/.env` and configure:
 | Page | Route(s) | Description |
 |---|---|---|
 | **Home** | `/` | Landing page with feature cards, system status strip, and risk score CTA |
-| **Phishing Scan** | `/detect/phishing-link` | Two-tab: URL text input (F-01) and QR code image upload (F-04) |
+| **Phishing Scan** | `/detect/phishing-link` | Two-tab: URL text input (F-01) with auto-scheme formatting + QR code image upload (F-04) |
 | **Message Scan** | `/detect/message-scan` | Two-tab: paste text (F-02) and screenshot upload with OCR async polling (F-03) |
 | **Deepfake Scan** | `/detect/deepfake` | Drag-and-drop image upload → EfficientNet-B4 deepfake analysis (F-06) |
-| **Mule Account** | `/detect/mule-account` | Signal selector form with transaction topology visualization → F-07 analysis |
-| **Password Check** | `/protect/password-check` | Password strength + entropy checker |
-| **File Encryption** | `/protect/file-encryption` | AES-256-GCM file encrypt and decrypt |
+| **MuleTrace** | `/detect/mule-account` | MuleTrace Forensic Network Investigator — dynamic topology map engine with NetworkX centrality analysis, XGBoost classification, and live scenario metrics |
+| **Password Check** | `/protect/password-check` | Real-time Shannon entropy calculator, 10B guesses/sec crack time estimator, character checklist & 1-click password generator |
+| **File Encryption** | `/protect/file-encryption` | Zero-Knowledge Dual-Engine File Vault — Argon2id + AES-256-GCM server vault with automatic Web Crypto in-browser fallback |
 | **Risk Score** | `/assist/risk-score` | Animated risk meter gauge + explainable signal breakdown + security questionnaire |
 | **Safety Hub** | `/learn` | Daily safety tip, interactive quiz, and educational articles |
 | **Login** | `/login` | Email/password login with inline TOTP 2FA challenge handling |
@@ -484,6 +484,12 @@ Dependencies: `pytest`, `pytest-asyncio`, `pytest-cov`, `ruff`, `black` (backend
 - **F-11 AI Assistant is blocked.** The RAG pipeline and knowledge base are fully implemented, but LLM generation is disabled until ADR-013 (LLM provider selection) is resolved. The endpoint returns HTTP 501.
 
 - **F-07 domain mismatch (ADR-024) — RESOLVED.** The mule account detection model has been retrained on a synthetic Indian bank transaction dataset modelling real UPI/NEFT/IMPS fraud typologies (burst pass-through, smurfing, job-scam recruitment). See `backend/ml/pipelines/train_f07_indian_bank.py`. All verdicts still carry `is_experimental: true` as the dataset is synthetic, not real labelled bank data.
+
+- **MuleTrace Topology Map Engine & Demo Datasets.** The network topology console dynamically updates nodes, centrality metrics, and transaction volume totals across built-in scenarios (`UPI Mule Ring`, `Crypto P2P`, `Smurfing`) and custom CSV uploads (`demo_mule_ring_simple.csv`, `demo_mule_ring_complex.csv`).
+
+- **Dual-Engine Zero-Knowledge File Cryptography.** `/protect/file-encryption` supports both server-side Argon2id + AES-256-GCM and client-side browser Web Crypto API (AES-256-GCM + PBKDF2 100k rounds) to guarantee 100% encryption/decryption availability regardless of network connectivity. Mode switching between Encrypt and Decrypt automatically clears and resets inputs for a clean user state.
+
+- **Password Security & Entropy Engine.** `/protect/password-check` evaluates Shannon entropy bits, character diversity rules, common wordlist matches, and brute-force time estimates assuming 10 billion attempts/second, accessible to both guest and authenticated sessions.
 
 - **F-06 deepfake is experimental.** EfficientNet-B4 is trained on the Celeb-DF dataset (celebrity deepfakes). Performance on in-the-wild or non-celebrity images may vary. All F-06 verdicts carry `is_experimental: true`.
 
