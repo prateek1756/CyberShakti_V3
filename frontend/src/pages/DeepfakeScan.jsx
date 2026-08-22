@@ -83,7 +83,10 @@ export const DeepfakeScan = () => {
 
     try {
       const res = await api.post('/detect/analyze-media-deepfake', formData);
-      if (res.data.task_id) {
+      if (res.data.status === 'complete' && res.data.result) {
+        setLoading(false);
+        setResult(res.data.result);
+      } else if (res.data.task_id) {
         setCurrentTaskId(res.data.task_id);
         pollTask(res.data.task_id);
       } else {
@@ -92,7 +95,7 @@ export const DeepfakeScan = () => {
       }
     } catch (err) {
       setLoading(false);
-      const msg = err.response?.data?.detail?.message || err.response?.data?.detail || 'Failed to submit image for analysis.';
+      const msg = err.response?.data?.detail?.message || err.response?.data?.detail || err.message || 'Failed to submit image for analysis.';
       setError(typeof msg === 'string' ? msg : JSON.stringify(msg));
     }
   };

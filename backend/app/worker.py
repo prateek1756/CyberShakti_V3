@@ -61,6 +61,20 @@ if os.path.exists(F02_DISTILBERT_DIR):
 f05_model = joblib.load(F05_MODEL_PATH) if os.path.exists(F05_MODEL_PATH) else None
 f07_model = joblib.load(F07_MODEL_PATH) if os.path.exists(F07_MODEL_PATH) else None
 
+# Lazy-load EfficientNet-B4 once at worker startup (Fix 3 — avoids 71 MB disk read per request)
+f06_efficientnet = None
+if os.path.exists(F06_EFFICIENTNET_PATH):
+    try:
+        from ml.pipelines.train_f06_efficientnet import DeepfakeEfficientNetDetector
+        f06_efficientnet = DeepfakeEfficientNetDetector(pretrained=False)
+        f06_efficientnet.load_state_dict(
+            torch.load(F06_EFFICIENTNET_PATH, weights_only=True)
+        )
+        f06_efficientnet.eval()
+        logger.info("EfficientNet-B4 loaded successfully at worker startup.")
+    except Exception as exc:
+        logger.warning("Could not load EfficientNet-B4 model: %s", exc)
+
 
 # ---------------------------------------------------------------------------
 # F-02 helper: classify text using primary (DistilBERT) or baseline (TF-IDF)
@@ -307,13 +321,24 @@ def detect_deepfake(job_id: str, file_path: str) -> Dict[str, Any]:
         except Exception:
             pass
 
-    # Load EfficientNet-B4 model
-    model = DeepfakeEfficientNetDetector(pretrained=False)
-    if os.path.exists(F06_EFFICIENTNET_PATH):
+    # Use module-level lazy-loaded model (Fix 3)
+    model = f06_efficientnet
+    if model is None:
+        # Model was not loaded at startup — attempt a one-shot load as fallback
         try:
-            model.load_state_dict(torch.load(F06_EFFICIENTNET_PATH, weights_only=True))
+            from ml.pipelines.train_f06_efficientnet import DeepfakeEfficientNetDetector
+            model = DeepfakeEfficientNetDetector(pretrained=False)
+            if os.path.exists(F06_EFFICIENTNET_PATH):
+                model.load_state_dict(torch.load(F06_EFFICIENTNET_PATH, weights_only=True))
+            model.eval()
         except Exception as exc:
-            logger.error("F-06: model load failed: %s", exc)
+            logger.error("F-06: model unavailable: %s", exc)
+            return {
+                "job_id": job_id,
+                "error": "MODEL_UNAVAILABLE",
+                "message": "Deepfake model could not be loaded.",
+                "verdict": {"risk_level": "error"}
+            }
 
     model.eval()
 
@@ -323,10 +348,13 @@ def detect_deepfake(job_id: str, file_path: str) -> Dict[str, Any]:
 
     risk_level = "high_risk" if prob >= 0.7 else "moderate_risk" if prob >= 0.4 else "safe"
 
+    # Gate signals on probability — do not emit high-risk signals for safe results (Fix 5)
+    signals = ["cnn_facial_anomaly_detected", "efficientnet_b4_feature_noise"] if prob >= 0.4 else []
+
     explanation_data = generate_explanation(
         feature_id="F-06",
         risk_level=risk_level,
-        signals=["cnn_facial_anomaly_detected", "efficientnet_b4_feature_noise"],
+        signals=signals or None,
         is_experimental=True
     )
 
@@ -344,30 +372,70 @@ def detect_deepfake(job_id: str, file_path: str) -> Dict[str, Any]:
 @celery_app.task(name="tasks.detect_mule_account")
 def detect_mule_account(job_id: str, account_signals: Dict[str, Any]) -> Dict[str, Any]:
     """Celery task executing graph-aware mule account classification using trained F-07 model."""
+    if not isinstance(account_signals, dict):
+        account_signals = {}
+    txn_velocity = 1 if account_signals.get('transaction_velocity_high') else 0
+    mult_recip = 1 if account_signals.get('multiple_recipients') else 0
+    round_amt = 1 if account_signals.get('round_amount_transfers') else 0
+    pass_thru = 1 if account_signals.get('pass_through') else 0
+    age_cat = int(account_signals.get('account_age_category', 0))
+
+    # Graph properties derived dynamically from user inputs if not explicitly supplied
+    in_deg = account_signals.get('graph_in_degree')
+    if in_deg is None:
+        in_deg = 15 if (mult_recip or pass_thru) else 2
+
+    out_deg = account_signals.get('graph_out_degree')
+    if out_deg is None:
+        out_deg = 18 if (mult_recip or pass_thru) else 2
+
+    btw = account_signals.get('graph_betweenness_centrality')
+    if btw is None:
+        btw = 0.45 if (pass_thru and txn_velocity) else 0.02
+
+    clust = account_signals.get('graph_clustering_coefficient')
+    if clust is None:
+        clust = 0.12 if pass_thru else 0.65
+
     feature_dict = {
-        'account_age_category': account_signals.get('account_age_category', 0),
-        'transaction_velocity_high': 1 if account_signals.get('transaction_velocity_high') else 0,
-        'multiple_recipients': 1 if account_signals.get('multiple_recipients') else 0,
-        'round_amount_transfers': 1 if account_signals.get('round_amount_transfers') else 0,
-        'account_used_for_receiving_then_forwarding': 1 if account_signals.get('pass_through') else 0,
-        'graph_in_degree': account_signals.get('graph_in_degree', 12),
-        'graph_out_degree': account_signals.get('graph_out_degree', 15),
-        'graph_betweenness_centrality': account_signals.get('graph_betweenness_centrality', 0.45),
-        'graph_clustering_coefficient': account_signals.get('graph_clustering_coefficient', 0.12)
+        'account_age_category': age_cat,
+        'transaction_velocity_high': txn_velocity,
+        'multiple_recipients': mult_recip,
+        'round_amount_transfers': round_amt,
+        'account_used_for_receiving_then_forwarding': pass_thru,
+        'graph_in_degree': in_deg,
+        'graph_out_degree': out_deg,
+        'graph_betweenness_centrality': btw,
+        'graph_clustering_coefficient': clust
     }
 
     if f07_model is not None:
         df_feat = pd.DataFrame([feature_dict])
         prob = float(f07_model.predict_proba(df_feat)[0, 1])
     else:
-        prob = 0.88
+        # Fallback heuristic calculation if model not present
+        score = 0.05
+        if pass_thru: score += 0.35
+        if txn_velocity: score += 0.25
+        if mult_recip: score += 0.20
+        if age_cat == 0: score += 0.15
+        prob = min(0.98, max(0.02, score))
 
     risk_level = "high_risk" if prob >= 0.7 else "moderate_risk" if prob >= 0.4 else "safe"
+
+    # Derive signals from actual feature values rather than hardcoding them (Fix 5)
+    signal_map = {
+        "transaction_velocity_high": "high_transaction_velocity",
+        "account_used_for_receiving_then_forwarding": "pass_through_pattern",
+        "multiple_recipients": "multiple_recipients_detected",
+        "round_amount_transfers": "round_amount_pattern",
+    }
+    signals = [label for key, label in signal_map.items() if feature_dict.get(key) == 1]
 
     explanation_data = generate_explanation(
         feature_id="F-07",
         risk_level=risk_level,
-        signals=["high_transaction_velocity", "pass_through_pattern"],
+        signals=signals or None,
         is_experimental=True
     )
 

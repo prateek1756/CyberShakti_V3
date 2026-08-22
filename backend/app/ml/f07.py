@@ -76,6 +76,169 @@ def _ensure_loaded() -> None:
     _loaded = True
 
 
+def analyze_transaction_network(transactions: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Parses a transaction log and builds a directed transaction graph.
+    Computes NetworkX graph metrics, identifies node roles (VICTIM_SOURCE, MULE_ACCOUNT,
+    LAYERING_HUB, DESTINATION_SINK), calculates risk scores, and detects mule rings.
+    """
+    if not transactions:
+        return {
+            "nodes": [],
+            "edges": [],
+            "summary": {
+                "total_accounts": 0,
+                "flagged_mules": 0,
+                "total_volume": 0.0,
+                "suspicious_volume": 0.0,
+                "mule_rings_detected": 0
+            }
+        }
+
+    G = nx.DiGraph()
+    node_stats: Dict[str, Dict[str, Any]] = {}
+
+    total_volume = 0.0
+
+    for tx in transactions:
+        sender = str(tx.get("sender") or tx.get("sender_account") or tx.get("from") or "UNKNOWN_SRC").strip()
+        receiver = str(tx.get("receiver") or tx.get("receiver_account") or tx.get("to") or "UNKNOWN_DEST").strip()
+        try:
+            amount = float(tx.get("amount") or tx.get("txn_amount") or 0.0)
+        except (ValueError, TypeError):
+            amount = 0.0
+
+        timestamp = str(tx.get("timestamp") or tx.get("time") or "")
+
+        total_volume += amount
+
+        for node_id in (sender, receiver):
+            if node_id not in node_stats:
+                node_stats[node_id] = {
+                    "in_degree": 0,
+                    "out_degree": 0,
+                    "in_volume": 0.0,
+                    "out_volume": 0.0,
+                    "tx_count": 0,
+                }
+                G.add_node(node_id)
+
+        node_stats[sender]["out_degree"] += 1
+        node_stats[sender]["out_volume"] += amount
+        node_stats[sender]["tx_count"] += 1
+
+        node_stats[receiver]["in_degree"] += 1
+        node_stats[receiver]["in_volume"] += amount
+        node_stats[receiver]["tx_count"] += 1
+
+        if G.has_edge(sender, receiver):
+            G[sender][receiver]["amount"] += amount
+            G[sender][receiver]["count"] += 1
+        else:
+            G.add_edge(sender, receiver, amount=amount, count=1, timestamp=timestamp)
+
+    # Compute graph centrality metrics
+    betweenness = nx.betweenness_centrality(G) if len(G) > 2 else {n: 0.0 for n in G.nodes}
+    
+    # Simple undirected graph for clustering calculation
+    undirected_G = G.to_undirected()
+    clustering = nx.clustering(undirected_G)
+
+    nodes_output = []
+    flagged_mules_count = 0
+    suspicious_volume = 0.0
+
+    for node_id, stats in node_stats.items():
+        in_deg = stats["in_degree"]
+        out_deg = stats["out_degree"]
+        in_vol = stats["in_volume"]
+        out_vol = stats["out_volume"]
+        btw = betweenness.get(node_id, 0.0)
+        clust = clustering.get(node_id, 0.0)
+
+        # Pass-through ratio evaluation (funds rapidly enter and leave)
+        min_vol = min(in_vol, out_vol)
+        max_vol = max(in_vol, out_vol) if max(in_vol, out_vol) > 0 else 1.0
+        pass_through_ratio = min_vol / max_vol if in_vol > 0 and out_vol > 0 else 0.0
+
+        # Heuristic Risk Score (0-100)
+        risk_score = 15.0
+        if in_deg > 0 and out_deg > 0:
+            risk_score += pass_through_ratio * 40.0  # Pass-through behavior
+        if in_deg >= 3 and out_deg >= 3:
+            risk_score += 25.0  # High fan-in and fan-out
+        if btw > 0.15:
+            risk_score += 20.0  # Central bottleneck in flow
+
+        risk_score = min(99.0, max(5.0, round(risk_score, 1)))
+
+        # Node Role Classification
+        if in_deg == 0 and out_deg > 0:
+            role = "VICTIM_SOURCE"
+            risk_tier = "low_risk"
+        elif in_deg > 0 and out_deg == 0:
+            role = "DESTINATION_SINK"
+            risk_tier = "moderate_risk" if risk_score > 50 else "low_risk"
+        elif in_deg >= 2 and out_deg >= 2 and pass_through_ratio >= 0.7:
+            role = "MULE_ACCOUNT"
+            risk_tier = "high_risk"
+            flagged_mules_count += 1
+            suspicious_volume += in_vol
+        elif in_deg >= 1 and out_deg >= 1 and pass_through_ratio >= 0.5:
+            role = "LAYERING_HUB"
+            risk_tier = "moderate_risk"
+            if risk_score >= 60:
+                flagged_mules_count += 1
+                suspicious_volume += in_vol
+        else:
+            role = "REGULAR_ACCOUNT"
+            risk_tier = "safe"
+
+        nodes_output.append({
+            "id": node_id,
+            "label": node_id,
+            "role": role,
+            "risk_score": risk_score,
+            "risk_tier": risk_tier,
+            "in_degree": in_deg,
+            "out_degree": out_deg,
+            "in_volume": round(in_vol, 2),
+            "out_volume": round(out_vol, 2),
+            "betweenness_centrality": round(btw, 4),
+            "clustering_coefficient": round(clust, 4),
+            "pass_through_ratio": round(pass_through_ratio, 2)
+        })
+
+    edges_output = []
+    for u, v, data in G.edges(data=True):
+        edges_output.append({
+            "source": u,
+            "target": v,
+            "amount": round(data.get("amount", 0.0), 2),
+            "count": data.get("count", 1),
+            "timestamp": data.get("timestamp", "")
+        })
+
+    # Detect mule rings (connected components containing at least one mule)
+    weak_components = list(nx.weakly_connected_components(G))
+    mule_rings_count = sum(
+        1 for comp in weak_components
+        if any(n["role"] in ("MULE_ACCOUNT", "LAYERING_HUB") for n in nodes_output if n["id"] in comp)
+    )
+
+    return {
+        "nodes": nodes_output,
+        "edges": edges_output,
+        "summary": {
+            "total_accounts": len(nodes_output),
+            "flagged_mules": flagged_mules_count,
+            "total_volume": round(total_volume, 2),
+            "suspicious_volume": round(suspicious_volume, 2),
+            "mule_rings_detected": mule_rings_count
+        }
+    }
+
+
 def infer_mule(account_signals: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(account_signals, dict) or not account_signals:
         raise ValueError("empty_signals")

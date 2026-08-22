@@ -7,6 +7,7 @@ python-multipart>=0.0.9
 
 # Database & Migrations
 SQLAlchemy[asyncio]>=2.0.28
+aiosqlite>=0.20.0
 asyncpg>=0.29.0
 alembic>=1.13.1
 psycopg2-binary>=2.9.9

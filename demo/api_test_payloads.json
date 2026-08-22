@@ -1,0 +1,105 @@
+﻿{
+  "note": "Copy-paste these into http://localhost:8000/docs for API demo",
+  "f01_phishing_url": {
+    "endpoint": "POST /api/v1/detect/scan-url",
+    "high_risk": { "url": "https://sbi-kyc-update-portal-secure.xyz/login?session=abc123" },
+    "moderate_risk": { "url": "http://bit.ly/reward-claim-amazon" },
+    "safe": { "url": "https://www.google.com" }
+  },
+  "f02_scam_message": {
+    "endpoint": "POST /api/v1/detect/scan-message",
+    "high_risk_otp_scam": {
+      "text": "Dear Customer, Your SBI bank account has been BLOCKED due to incomplete KYC. Share your OTP immediately to avoid permanent suspension."
+    },
+    "high_risk_lottery": {
+      "text": "CONGRATULATIONS! You won Rs 15,00,000 in National Lucky Draw 2026. Pay Rs 500 to claim-prize@hdfc to release funds."
+    },
+    "safe": {
+      "text": "Hi, are you free this weekend? Let me know!"
+    }
+  },
+  "f05_fake_profile": {
+    "endpoint": "POST /api/v1/detect/assess-profile",
+    "high_risk": {
+      "signals": {
+        "account_age_category": 0,
+        "follower_count_range": 0,
+        "following_to_follower_ratio_high": true,
+        "has_profile_photo": true,
+        "profile_photo_appears_generic": true,
+        "bio_present": false,
+        "sent_unsolicited_money_request": true,
+        "claims_celebrity_or_official": true,
+        "contacted_via_dm_unsolicited": true,
+        "promotes_investment_or_scheme": true
+      }
+    },
+    "safe": {
+      "signals": {
+        "account_age_category": 2,
+        "follower_count_range": 2,
+        "following_to_follower_ratio_high": false,
+        "has_profile_photo": true,
+        "profile_photo_appears_generic": false,
+        "bio_present": true,
+        "sent_unsolicited_money_request": false,
+        "claims_celebrity_or_official": false,
+        "contacted_via_dm_unsolicited": false,
+        "promotes_investment_or_scheme": false
+      }
+    }
+  },
+  "f07_mule_account": {
+    "endpoint": "POST /api/v1/detect/assess-mule-account",
+    "high_risk": {
+      "account_signals": {
+        "account_age_category": 0,
+        "transaction_velocity_high": true,
+        "multiple_recipients": true,
+        "round_amount_transfers": true,
+        "pass_through": true,
+        "graph_in_degree": 45,
+        "graph_out_degree": 38,
+        "graph_betweenness_centrality": 0.82,
+        "graph_clustering_coefficient": 0.05
+      }
+    },
+    "safe": {
+      "account_signals": {
+        "account_age_category": 2,
+        "transaction_velocity_high": false,
+        "multiple_recipients": false,
+        "round_amount_transfers": false,
+        "pass_through": false,
+        "graph_in_degree": 4,
+        "graph_out_degree": 3,
+        "graph_betweenness_centrality": 0.02,
+        "graph_clustering_coefficient": 0.75
+      }
+    }
+  },
+  "f08_password_check": {
+    "endpoint": "POST /api/v1/protect/check-password",
+    "note": "Requires auth token",
+    "very_weak": { "password": "password" },
+    "weak": { "password": "Prateek@1" },
+    "moderate": { "password": "CyberShakti2026" },
+    "very_strong": { "password": "Tr0ub4dor&3!Zx#9" }
+  },
+  "f10_risk_score_questionnaire": {
+    "endpoint": "POST /api/v1/assist/risk-score/questionnaire",
+    "note": "Requires auth token",
+    "low_score_risky_user": {
+      "uses_2fa_on_bank_apps": false,
+      "reuses_passwords": true,
+      "shares_otp_with_others": true,
+      "locks_phone": false
+    },
+    "high_score_safe_user": {
+      "uses_2fa_on_bank_apps": true,
+      "reuses_passwords": false,
+      "shares_otp_with_others": false,
+      "locks_phone": true
+    }
+  }
+}
