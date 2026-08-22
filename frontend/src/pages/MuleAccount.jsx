@@ -303,7 +303,7 @@ export const MuleAccount = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [riskFilter, setRiskFilter] = useState(0);
 
-  useEffect(() => { runSampleNetwork(0); }, []);
+  // NOTE: useEffect auto-load is placed AFTER runSampleNetwork is declared below.
 
   const handleSignalChange = (key, val) => {
     setSignals(prev => ({ ...prev, [key]: Number(val) }));
@@ -336,7 +336,8 @@ export const MuleAccount = () => {
     }
   };
 
-  const runSampleNetwork = async (targetIdx) => {
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const runSampleNetwork = useCallback(async (targetIdx) => {
     const idx = targetIdx !== undefined ? targetIdx : (scenarioIdx + 1) % SAMPLE_SCENARIOS.length;
     setScenarioIdx(idx);
     const scenario = SAMPLE_SCENARIOS[idx];
@@ -355,34 +356,80 @@ export const MuleAccount = () => {
       }
     } catch {
       setLoading(false);
-      // Rich fallback dataset
-      const fallback = {
-        nodes: [
-          { id: 'VIC_101', role: 'VICTIM_SOURCE',    in_degree: 0, out_degree: 2, betweenness_centrality: 0.05, pass_through_ratio: 0.01 },
-          { id: 'VIC_102', role: 'VICTIM_SOURCE',    in_degree: 0, out_degree: 2, betweenness_centrality: 0.03, pass_through_ratio: 0.01 },
-          { id: 'VIC_103', role: 'VICTIM_SOURCE',    in_degree: 0, out_degree: 1, betweenness_centrality: 0.02, pass_through_ratio: 0.01 },
-          { id: 'MULE_99', role: 'MULE_ACCOUNT',     in_degree: 3, out_degree: 2, betweenness_centrality: 0.82, pass_through_ratio: 0.94 },
-          { id: 'MULE_88', role: 'MULE_ACCOUNT',     in_degree: 2, out_degree: 2, betweenness_centrality: 0.74, pass_through_ratio: 0.91 },
-          { id: 'HUB_404', role: 'LAYERING_HUB',     in_degree: 4, out_degree: 3, betweenness_centrality: 0.67, pass_through_ratio: 0.88 },
-          { id: 'ATM_01',  role: 'DESTINATION_SINK', in_degree: 2, out_degree: 0, betweenness_centrality: 0.08, pass_through_ratio: 0.02 },
-          { id: 'CRPT_02', role: 'DESTINATION_SINK', in_degree: 2, out_degree: 0, betweenness_centrality: 0.06, pass_through_ratio: 0.02 },
-        ],
-        edges: [
-          { source: 'VIC_101', target: 'MULE_99', amount: 250000 },
-          { source: 'VIC_102', target: 'MULE_99', amount: 180000 },
-          { source: 'VIC_103', target: 'MULE_88', amount: 290000 },
-          { source: 'VIC_102', target: 'MULE_88', amount: 150000 },
-          { source: 'MULE_99', target: 'HUB_404', amount: 420000 },
-          { source: 'MULE_88', target: 'HUB_404', amount: 430000 },
-          { source: 'HUB_404', target: 'ATM_01',  amount: 400000 },
-          { source: 'HUB_404', target: 'CRPT_02', amount: 440000 },
-        ],
-        total_volume: 2160000,
-      };
-      setGraphData(fallback);
-      setSelectedNode(fallback.nodes[3]);
+      // Rich fallback dataset — unique per scenario so stats change on each click
+      const fallbacks = [
+        // Scenario 0: UPI Ring — 2 mules, 2 hubs, 3 victims, 2 cashouts
+        {
+          nodes: [
+            { id: 'VIC_101', role: 'VICTIM_SOURCE',    in_degree: 0, out_degree: 2, betweenness_centrality: 0.05, pass_through_ratio: 0.01 },
+            { id: 'VIC_102', role: 'VICTIM_SOURCE',    in_degree: 0, out_degree: 2, betweenness_centrality: 0.03, pass_through_ratio: 0.01 },
+            { id: 'VIC_103', role: 'VICTIM_SOURCE',    in_degree: 0, out_degree: 1, betweenness_centrality: 0.02, pass_through_ratio: 0.01 },
+            { id: 'MULE_99', role: 'MULE_ACCOUNT',     in_degree: 3, out_degree: 2, betweenness_centrality: 0.82, pass_through_ratio: 0.94 },
+            { id: 'MULE_88', role: 'MULE_ACCOUNT',     in_degree: 2, out_degree: 2, betweenness_centrality: 0.74, pass_through_ratio: 0.91 },
+            { id: 'HUB_404', role: 'LAYERING_HUB',     in_degree: 4, out_degree: 3, betweenness_centrality: 0.67, pass_through_ratio: 0.88 },
+            { id: 'HUB_202', role: 'LAYERING_HUB',     in_degree: 2, out_degree: 2, betweenness_centrality: 0.55, pass_through_ratio: 0.85 },
+            { id: 'ATM_01',  role: 'DESTINATION_SINK', in_degree: 2, out_degree: 0, betweenness_centrality: 0.08, pass_through_ratio: 0.02 },
+            { id: 'CRPT_02', role: 'DESTINATION_SINK', in_degree: 2, out_degree: 0, betweenness_centrality: 0.06, pass_through_ratio: 0.02 },
+          ],
+          edges: [
+            { source: 'VIC_101', target: 'MULE_99',  amount: 250000 },
+            { source: 'VIC_102', target: 'MULE_99',  amount: 180000 },
+            { source: 'VIC_103', target: 'MULE_88',  amount: 290000 },
+            { source: 'VIC_102', target: 'MULE_88',  amount: 150000 },
+            { source: 'MULE_99', target: 'HUB_404',  amount: 420000 },
+            { source: 'MULE_88', target: 'HUB_202',  amount: 430000 },
+            { source: 'HUB_404', target: 'ATM_01',   amount: 400000 },
+            { source: 'HUB_202', target: 'CRPT_02',  amount: 440000 },
+          ],
+          total_volume: 2160000,
+        },
+        // Scenario 1: Crypto P2P — 2 mules, 1 hub, 2 victims, 1 cashout
+        {
+          nodes: [
+            { id: 'SRC_201', role: 'VICTIM_SOURCE',    in_degree: 0, out_degree: 1, betweenness_centrality: 0.04, pass_through_ratio: 0.01 },
+            { id: 'SRC_305', role: 'VICTIM_SOURCE',    in_degree: 0, out_degree: 1, betweenness_centrality: 0.03, pass_through_ratio: 0.01 },
+            { id: 'P2P_711', role: 'MULE_ACCOUNT',     in_degree: 1, out_degree: 1, betweenness_centrality: 0.78, pass_through_ratio: 0.93 },
+            { id: 'P2P_834', role: 'MULE_ACCOUNT',     in_degree: 1, out_degree: 1, betweenness_centrality: 0.72, pass_through_ratio: 0.90 },
+            { id: 'GW_500',  role: 'LAYERING_HUB',     in_degree: 2, out_degree: 1, betweenness_centrality: 0.88, pass_through_ratio: 0.96 },
+            { id: 'WLLT_01', role: 'DESTINATION_SINK', in_degree: 1, out_degree: 0, betweenness_centrality: 0.05, pass_through_ratio: 0.01 },
+          ],
+          edges: [
+            { source: 'SRC_201', target: 'P2P_711', amount: 520000 },
+            { source: 'SRC_305', target: 'P2P_834', amount: 460000 },
+            { source: 'P2P_711', target: 'GW_500',  amount: 490000 },
+            { source: 'P2P_834', target: 'GW_500',  amount: 430000 },
+            { source: 'GW_500',  target: 'WLLT_01', amount: 900000 },
+          ],
+          total_volume: 2800000,
+        },
+        // Scenario 2: Smurfing — 1 mule, 0 hubs, 4 victims, 1 cashout
+        {
+          nodes: [
+            { id: 'SF_111', role: 'VICTIM_SOURCE',    in_degree: 0, out_degree: 1, betweenness_centrality: 0.02, pass_through_ratio: 0.01 },
+            { id: 'SF_222', role: 'VICTIM_SOURCE',    in_degree: 0, out_degree: 1, betweenness_centrality: 0.02, pass_through_ratio: 0.01 },
+            { id: 'SF_333', role: 'VICTIM_SOURCE',    in_degree: 0, out_degree: 1, betweenness_centrality: 0.02, pass_through_ratio: 0.01 },
+            { id: 'SF_444', role: 'VICTIM_SOURCE',    in_degree: 0, out_degree: 1, betweenness_centrality: 0.02, pass_through_ratio: 0.01 },
+            { id: 'HUB_S1', role: 'MULE_ACCOUNT',     in_degree: 4, out_degree: 1, betweenness_centrality: 0.91, pass_through_ratio: 0.98 },
+            { id: 'WD_001', role: 'DESTINATION_SINK', in_degree: 1, out_degree: 0, betweenness_centrality: 0.04, pass_through_ratio: 0.01 },
+          ],
+          edges: [
+            { source: 'SF_111', target: 'HUB_S1', amount: 48500 },
+            { source: 'SF_222', target: 'HUB_S1', amount: 49200 },
+            { source: 'SF_333', target: 'HUB_S1', amount: 47800 },
+            { source: 'SF_444', target: 'HUB_S1', amount: 49500 },
+            { source: 'HUB_S1', target: 'WD_001', amount: 194000 },
+          ],
+          total_volume: 389000,
+        },
+      ];
+      const fb = fallbacks[idx] || fallbacks[0];
+      setGraphData(fb);
+      setSelectedNode(fb.nodes.find(n => n.role === 'MULE_ACCOUNT') || fb.nodes[0]);
     }
-  };
+  }, []);
+
+  // Auto-load scenario 0 on mount (placed after runSampleNetwork is declared)
+  useEffect(() => { runSampleNetwork(0); }, []);
 
   const handleCsvUpload = async (e) => {
     const file = e.target.files[0];
@@ -450,7 +497,7 @@ export const MuleAccount = () => {
             <NetworkIcon className="w-3.5 h-3.5" /> MULE TRACE — FORENSIC GRAPH ENGINE
           </div>
           <h1 className="text-3xl sm:text-4xl font-display font-extrabold text-white tracking-tight">
-            Money Mule Ring & Transaction Investigator
+            MuleTrace — Network Investigator
           </h1>
           <p className="text-slate-400 text-sm max-w-2xl">
             Identify money muling networks using behavioral graph analytics — NetworkX centrality, XGBoost classifiers, and directed transaction topology.

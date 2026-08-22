@@ -1,0 +1,54 @@
+{
+  "feature": "F-07",
+  "model": "XGBoost",
+  "dataset": "Synthetic Indian bank transaction dataset - models UPI/NEFT/IMPS mule account typologies based on RBI/FIU-IND advisories and NPCI UPI fraud patterns. Replaces Elliptic cryptocurrency dataset (ADR-024 resolved).",
+  "domain": "Indian bank accounts (UPI, NEFT, IMPS)",
+  "adr_resolved": "ADR-024",
+  "classes": {
+    "mule_patterns": [
+      "MULE_ACCOUNT",
+      "LAYERING_HUB",
+      "SMURFING"
+    ],
+    "legit_patterns": [
+      "SALARY_ACCOUNT",
+      "BUSINESS_ACCOUNT",
+      "BORDERLINE_LEGIT"
+    ]
+  },
+  "split": "60/20/20 stratified",
+  "seed": 42,
+  "n_train": 3600,
+  "n_val": 1200,
+  "class_distribution_train": {
+    "mule": 1800,
+    "legit": 1800
+  },
+  "test": {
+    "accuracy": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0,
+    "confusion_matrix": {
+      "tn": 600,
+      "fp": 0,
+      "fn": 0,
+      "tp": 600
+    },
+    "n_test": 1200,
+    "positive_rate_test": 0.5,
+    "roc_auc": 1.0
+  },
+  "feature_importances": {
+    "account_age_days": 0.0974,
+    "inbound_txn_count": 0.024,
+    "outbound_txn_count": 0.0066,
+    "rapid_fund_pass_through": 0.0432,
+    "degree_centrality": 0.0149,
+    "clustering_coefficient": 0.0624,
+    "betweenness_centrality": 0.6411,
+    "node_count": 0.0489,
+    "edge_count": 0.0617
+  },
+  "limitation": "Synthetic data - not a real labelled Indian bank transaction dataset. Statistical indicator only; not proof of criminal activity."
+}

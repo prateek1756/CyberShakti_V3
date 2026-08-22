@@ -1,4 +1,5 @@
-"""F-07 graph feature engineering (NetworkX). Elliptic-trained weights are not loaded unless present."""
+"""F-07 graph feature engineering (NetworkX) + XGBoost mule account inference.
+Model retrained on synthetic Indian bank transaction data (ADR-024 resolved)."""
 
 from __future__ import annotations
 
@@ -10,9 +11,10 @@ from app.ml.loader import load_joblib, load_json
 from app.shared.explanation_engine import generate_explanation
 
 DISCLAIMERS = {
-    "experimental": "Research/experimental feature.",
-    "domain_mismatch": (
-        "Elliptic/Elliptic2 represent cryptocurrency transaction networks, not Indian bank accounts (ADR-024)."
+    "experimental": "Research/experimental feature. Statistical indicator only.",
+    "domain": (
+        "Model trained on synthetic Indian bank transaction data (UPI/NEFT/IMPS patterns). "
+        "ADR-024 resolved — Elliptic crypto dataset no longer used."
     ),
     "general_notice": "Statistical indicator only; not proof of criminal activity.",
 }
@@ -71,7 +73,8 @@ def _ensure_loaded() -> None:
     global _model, _metrics, _loaded
     if _loaded:
         return
-    _model = load_joblib("f07_xgboost.joblib")
+    # Try the canonical inference model first, then the artefact copy
+    _model = load_joblib("f07_mule_account_model.joblib") or load_joblib("f07_xgboost.joblib")
     _metrics = load_json("f07_metrics.json")
     _loaded = True
 
@@ -250,7 +253,7 @@ def infer_mule(account_signals: Dict[str, Any]) -> Dict[str, Any]:
         prob = float(_model.predict_proba(np.array([tabular_features(account_signals)]))[0][1])
         risk = "high_risk" if prob >= 0.7 else "moderate_risk" if prob >= 0.4 else "low_risk"
         source = "ml_model"
-        note = "XGBoost artefact present. Domain mismatch with Indian bank networks still applies (ADR-024)."
+        note = "XGBoost model trained on synthetic Indian bank transaction data (UPI/NEFT/IMPS). ADR-024 resolved."
         model_loaded = True
     else:
         prob = None
@@ -265,7 +268,7 @@ def infer_mule(account_signals: Dict[str, Any]) -> Dict[str, Any]:
             flags.append("high_degree_centrality")
         risk = "high_risk" if len(flags) >= 2 else "moderate_risk" if flags else "low_risk"
         source = "heuristic"
-        note = "Elliptic dataset was not present; no F-07 XGBoost weights were trained or loaded."
+        note = "XGBoost model not loaded. Using heuristic fallback based on Indian bank mule patterns."
         model_loaded = False
 
     verdict = generate_explanation(

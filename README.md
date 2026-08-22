@@ -177,7 +177,7 @@ Detects AI-generated facial manipulation and face swaps in images.
 Identifies bank accounts used as intermediaries in financial crime.
 
 - **Approach:** XGBoost on a 9-feature vector combining transaction signals (account age, velocity, multiple recipients, pass-through pattern, round-amount transfers) with 4 graph centrality features computed via NetworkX.
-- **Domain note (ADR-024):** Trained on the Elliptic cryptocurrency dataset — there is a documented domain mismatch with Indian bank account networks. Results are indicative, not definitive.
+- **Domain note (ADR-024):** ~~Trained on the Elliptic cryptocurrency dataset~~ **RESOLVED** — Model retrained on a synthetic Indian bank transaction dataset modelling UPI/NEFT/IMPS mule typologies (burst UPI transfers, smurfing < ₹50k, job-scam account recruitment). See `ml/pipelines/train_f07_indian_bank.py`.
 - **Marked experimental** in all verdicts.
 - **Model file:** `f07_mule_account_model.joblib`
 
@@ -483,7 +483,7 @@ Dependencies: `pytest`, `pytest-asyncio`, `pytest-cov`, `ruff`, `black` (backend
 
 - **F-11 AI Assistant is blocked.** The RAG pipeline and knowledge base are fully implemented, but LLM generation is disabled until ADR-013 (LLM provider selection) is resolved. The endpoint returns HTTP 501.
 
-- **F-07 domain mismatch (ADR-024).** The mule account detection model was trained on the Elliptic cryptocurrency dataset, not Indian bank transaction data. Results should be treated as indicative signals, not definitive verdicts. The `is_experimental` flag is set on all F-07 results.
+- **F-07 domain mismatch (ADR-024) — RESOLVED.** The mule account detection model has been retrained on a synthetic Indian bank transaction dataset modelling real UPI/NEFT/IMPS fraud typologies (burst pass-through, smurfing, job-scam recruitment). See `backend/ml/pipelines/train_f07_indian_bank.py`. All verdicts still carry `is_experimental: true` as the dataset is synthetic, not real labelled bank data.
 
 - **F-06 deepfake is experimental.** EfficientNet-B4 is trained on the Celeb-DF dataset (celebrity deepfakes). Performance on in-the-wild or non-celebrity images may vary. All F-06 verdicts carry `is_experimental: true`.
 
