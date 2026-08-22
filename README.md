@@ -117,7 +117,6 @@ CYBER-SHAKTI-V3/
 │   │       ├── f05.py               # Fake profile XGBoost assessment
 │   │       ├── f06.py               # Deepfake EfficientNet-B4 detection
 │   │       ├── f07.py               # Mule account XGBoost + graph features
-│   │       ├── f11.py               # RAG cybersecurity assistant (blocked — ADR-013)
 │   │       └── models/              # Trained model artifacts (*.joblib, *.pth, *.safetensors)
 │   │
 │   ├── ml/
@@ -140,9 +139,9 @@ CYBER-SHAKTI-V3/
 ### F-01 — Phishing URL Detection
 Detects malicious, phishing, and credential-harvesting URLs.
 
-- **Approach:** XGBoost classifier on 17 lexical + domain features extracted from the URL (subdomain depth, entropy, IP address usage, HTTPS, suspicious keywords, URL length, path depth, etc.)
-- **Explainability:** SHAP TreeExplainer returns top-5 feature contributions per prediction
-- **Risk thresholds:** `prob ≥ 0.75` → high_risk, `≥ 0.55` → moderate_risk, `≥ 0.35` → low_risk, else safe. URLs using raw IPs are bumped to moderate_risk regardless.
+- **Approach:** XGBoost classifier on 19 lexical + domain features extracted from the URL (subdomain count, entropy, IP address usage, HTTPS, suspicious keywords, URL length, path depth, digit-to-letter ratio, brand lookalikes, etc.)
+- **Explainability:** SHAP TreeExplainer returns feature contributions per prediction
+- **Risk thresholds:** `prob ≥ 0.70` → high_risk, `≥ 0.40` → moderate_risk, else safe. URLs using raw IPs are bumped to risk status regardless.
 - **Model file:** `f01_phishing_url_model.joblib`
 
 ### F-02 — Scam Message / Text Classification
@@ -180,12 +179,6 @@ Identifies bank accounts used as intermediaries in financial crime.
 - **Domain note (ADR-024):** ~~Trained on the Elliptic cryptocurrency dataset~~ **RESOLVED** — Model retrained on a synthetic Indian bank transaction dataset modelling UPI/NEFT/IMPS mule typologies (burst UPI transfers, smurfing < ₹50k, job-scam account recruitment). See `ml/pipelines/train_f07_indian_bank.py`.
 - **Marked experimental** in all verdicts.
 - **Model file:** `f07_mule_account_model.joblib`
-
-### F-11 — RAG Cybersecurity Assistant *(Blocked)*
-A Retrieval-Augmented Generation assistant for cybersecurity Q&A using a local knowledge base.
-
-- **Current status:** **Blocked** — the `/query-assistant` API returns HTTP 501. ADR-013 (LLM provider selection) is unresolved and blocks generation. The RAG retrieval pipeline and knowledge base are implemented but no LLM is wired in.
-- **Knowledge base:** `kyc-account-block.md`, `otp-upi-safety.md`, `password-2fa.md`
 
 ---
 
