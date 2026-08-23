@@ -26,15 +26,6 @@ os.makedirs(SCAN_UPLOAD_DIR, exist_ok=True)
 
 router = APIRouter()
 
-# Load serialized trained models if available
-MODEL_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "ml", "models")
-F01_MODEL_PATH = os.path.join(MODEL_DIR, "f01_phishing_url_model.joblib")
-F02_MODEL_PATH = os.path.join(MODEL_DIR, "f02_scam_text_pipeline.joblib")
-
-f01_model = joblib.load(F01_MODEL_PATH) if os.path.exists(F01_MODEL_PATH) else None
-f02_pipeline = joblib.load(F02_MODEL_PATH) if os.path.exists(F02_MODEL_PATH) else None
-
-
 # --- Pydantic Schemas ---
 class ScanURLRequest(BaseModel):
     url: str
@@ -176,21 +167,24 @@ async def scan_message(
     scam_signals = f02_res.get("scam_signals", [])
     explanation_data = f02_res.get("verdict", {})
 
-    try:
-        scan_rec = ScanResult(
-            user_id=current_user.id if current_user else None,
-            feature_id="F-02",
-            input_type="text",
-            risk_level=risk_level,
-            risk_score_raw=round(prob, 4) if prob is not None else 0.0,
-            verdict_source=f02_res.get("verdict_source", "ml_model"),
-            task_status="complete"
-        )
-        db.add(scan_rec)
-        await db.commit()
-        scan_id_val = str(scan_rec.id)
-    except Exception:
-        scan_id_val = str(uuid.uuid4())
+    scan_id_val = str(uuid.uuid4())
+    if db is not None:
+        try:
+            scan_rec = ScanResult(
+                user_id=current_user.id if current_user else None,
+                feature_id="F-02",
+                input_type="text",
+                risk_level=risk_level,
+                risk_score_raw=round(prob, 4) if prob is not None else 0.0,
+                verdict_source=f02_res.get("verdict_source", "ml_model"),
+                task_status="complete"
+            )
+            db.add(scan_rec)
+            await db.commit()
+            scan_id_val = str(scan_rec.id)
+        except Exception:
+            pass
+
 
     return {
         "scan_id": scan_id_val,

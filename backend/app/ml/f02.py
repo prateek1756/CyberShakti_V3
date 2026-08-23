@@ -69,8 +69,12 @@ def _ensure_loaded() -> None:
     global _bundle, _metrics, _loaded
     if _loaded:
         return
-    _bundle = load_joblib("f02_scam_text_pipeline.joblib")
-    _metrics = load_json("f02_metrics.json")
+    try:
+        _bundle = load_joblib("f02_scam_text_pipeline.joblib")
+        _metrics = load_json("f02_metrics.json")
+    except Exception as exc:
+        _bundle = None
+        _metrics = None
     _loaded = True
 
 
@@ -78,13 +82,15 @@ def _get_ml_prob(cleaned: str) -> Optional[float]:
     """Returns XGBoost probability of fraud/scam (0.0–1.0), or None if model unavailable."""
     if _bundle is None:
         return None
-    from sklearn.pipeline import Pipeline as _Pipeline
-    if isinstance(_bundle, _Pipeline):
-        X = _bundle[:-1].transform([cleaned])
-        return float(_bundle[-1].predict_proba(X)[0][1])
-    # Legacy dict bundle
-    X = _bundle["vectorizer"].transform([cleaned])
-    return float(_bundle["model"].predict_proba(X)[0][1])
+    try:
+        if hasattr(_bundle, "predict_proba"):
+            return float(_bundle.predict_proba([cleaned])[0][1])
+        # Dict bundle fallback
+        X = _bundle["vectorizer"].transform([cleaned])
+        return float(_bundle["model"].predict_proba(X)[0][1])
+    except Exception:
+        return None
+
 
 
 def infer_text(text: str) -> Dict[str, Any]:
