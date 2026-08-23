@@ -9,6 +9,12 @@ CyberShakti is a full-stack cybersecurity platform built to help everyday users 
 ## Table of Contents
 
 - [Features](#features)
+- [System Architecture & Workflow](#system-architecture--workflow)
+- [Flowcharts & Sequence Diagrams](#flowcharts--sequence-diagrams)
+  - [1. End-to-End System Architecture Flow](#1-end-to-end-system-architecture-flow)
+  - [2. F-01 URL Threat & Redirect Resolver Workflow](#2-f-01-url-threat--redirect-resolver-workflow)
+  - [3. F-02 & F-03 Scam Message & Screenshot OCR Flow](#3-f-02--f-03-scam-message--screenshot-ocr-flow)
+  - [4. F-06 Deepfake Media Analysis Flow (Image & Video)](#4-f-06-deepfake-media-analysis-flow-image--video)
 - [Tech Stack](#tech-stack)
 - [Project Structure](#project-structure)
 - [ML Models & Detection Engines](#ml-models--detection-engines)
@@ -36,6 +42,167 @@ CyberShakti is organized into five core security modules:
 | **Assist & Respond** | Personalized Cyber Risk Score (explainable weighted signal engine), security questionnaire, scam alerts feed |
 | **Learn & Prevent** | Daily safety tips, interactive cybersecurity quiz, educational article library |
 | **Users & Auth** | JWT auth with refresh token rotation, TOTP 2FA, email verification, password reset, account deletion |
+
+---
+
+## System Architecture & Workflow
+
+CyberShakti operates on a **dual synchronous & asynchronous execution model**:
+1. **Synchronous Fast Path**: Instant scanning for text, URLs, and direct calculations using in-memory model inference (XGBoost, TF-IDF, SHAP).
+2. **Asynchronous Worker Path**: Long-running or resource-intensive jobs (multi-frame video deepfake analysis, EasyOCR image processing, DistilBERT transformers) offloaded to Celery workers backed by Redis.
+
+---
+
+## Flowcharts & Sequence Diagrams
+
+### 1. End-to-End System Architecture Flow
+
+```mermaid
+flowchart TD
+    User([User / Client Browser]) -->|React SPA / Axios| Gateway{API Router & Auth}
+    
+    subgraph Frontend Client
+        User
+        ClientNLP[Client-side NLP Fallback Engine]
+    end
+
+    subgraph FastAPI Backend Server
+        Gateway -->|Verify JWT / 2FA| AuthEngine[Auth & Security Engine]
+        Gateway -->|Sync Endpoint| SyncML[Inference Engine]
+        Gateway -->|Async Task| TaskDispatcher[Celery Task Dispatcher]
+        
+        SyncML -->|19 Features| F01[F-01 URL XGBoost + Redirect Resolver]
+        SyncML -->|TF-IDF + XGBoost| F02[F-02 Scam Text Pipeline]
+        SyncML -->|Network Topology| F07[F-07 MuleTrace Graph Engine]
+    end
+
+    subgraph Celery Async Workers & Storage
+        TaskDispatcher -->|Enqueue Job| Redis[(Redis Broker & Cache)]
+        Redis --> Worker[Celery Worker Fleet]
+        
+        Worker -->|OpenCV CLAHE + EasyOCR| F03[F-03 Screenshot OCR]
+        Worker -->|PyTorch EfficientNet-B4| F06[F-06 Deepfake Video/Image]
+        Worker -->|Fine-tuned Transformer| DistilBERT[DistilBERT Scam Classifier]
+    end
+
+    subgraph Persistence Layer
+        FastAPI -->|Async SQLAlchemy 2.0| DB[(PostgreSQL / SQLite)]
+        Worker -->|Store Result| DB
+    end
+
+    SyncML -->|Instant JSON Response| User
+    Worker -->|Update Status| Redis
+    User -->|Poll /tasks/id/status| Gateway
+```
+
+---
+
+### 2. F-01 URL Threat & Redirect Resolver Workflow
+
+```mermaid
+flowchart TD
+    Start([User Inputs URL / QR Code]) --> Normalization[URL Normalization & Punycode Decoding]
+    Normalization --> FeatureExtraction[Extract 19 Lexical & Domain Features]
+    
+    Normalization --> LiveCheck{Live Resolution Enabled?}
+    LiveCheck -->|Yes| SSRF[SSRF Guard: validate_hostname_safe]
+    
+    SSRF -->|Private/Reserved IP| BlockSSRF[Flag BLOCKED_SSRF -> Risk 95 Critical]
+    SSRF -->|Public Safe IP| HTTPResolver[Hop-by-Hop Redirect Resolver]
+    
+    HTTPResolver -->|Follow Hops <= 5| HopTrace[Inspect Status Code, Headers, Downgrades]
+    HopTrace --> DestinationReached[Destination Resolved / DNS Status Recorded]
+    
+    LiveCheck -->|No / Offline| DestinationReached
+    FeatureExtraction --> XGBoostInference[Native XGBoost ML Inference]
+    DestinationReached --> XGBoostInference
+    
+    XGBoostInference --> SHAPExplainer[SHAP TreeExplainer Attribution]
+    SHAPExplainer --> DecisionEngine{Decision & Risk Calibration}
+    
+    DecisionEngine -->|Official Domain List| VerdictSafe[REAL / LEGITIMATE]
+    DecisionEngine -->|No Threats + HTTPS| VerdictNoThreat[NO THREATS DETECTED]
+    DecisionEngine -->|Unreachable / Dead| VerdictUnknown[UNKNOWN / UNVERIFIED]
+    DecisionEngine -->|High Risk Features| VerdictPhish[PHISHING / MALICIOUS]
+    
+    VerdictSafe --> Output([Return Detailed Security Report + Redirect Trace])
+    VerdictNoThreat --> Output
+    VerdictUnknown --> Output
+    VerdictPhish --> Output
+    BlockSSRF --> Output
+```
+
+---
+
+### 3. F-02 & F-03 Scam Message & Screenshot OCR Flow
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant Frontend as React SPA (MessageScan)
+    participant API as FastAPI Backend (/detect)
+    participant Redis as Redis / Celery Queue
+    participant Worker as Celery Worker
+    participant ML as EasyOCR + DistilBERT Engine
+
+    alt Direct Message Text Input
+        User->>Frontend: Input Message Text
+        Frontend->>API: POST /detect/scan-message
+        API->>ML: Run TF-IDF + XGBoost Pipeline
+        ML-->>API: Phishing Probability + SHAP Signals
+        API-->>Frontend: Return Instant Classification JSON
+    else Chat Screenshot Upload
+        User->>Frontend: Upload Chat Image (.png / .jpg)
+        Frontend->>API: POST /detect/scan-screenshot
+        API->>API: Validate Magic-Bytes Signature
+        API->>Redis: Dispatch task run_screenshot_ocr
+        API-->>Frontend: Return task_id (Status: QUEUED)
+        
+        loop Poll Task Status
+            Frontend->>API: GET /tasks/{task_id}/status
+            API->>Redis: Check Task State
+            Redis-->>Frontend: State: PROCESSING
+        end
+
+        Worker->>Redis: Pick up task
+        Worker->>ML: OpenCV CLAHE Contrast -> EasyOCR Text Extraction
+        ML->>ML: Pass Extracted Text to DistilBERT & F-02 Classifier
+        ML-->>Worker: Verdict + Structured Explanation
+        Worker->>Redis: Store Final Output
+        
+        Frontend->>API: GET /tasks/{task_id}/status
+        API-->>Frontend: State: COMPLETE + Final OCR Scam Verdict
+    end
+```
+
+---
+
+### 4. F-06 Deepfake Media Analysis Flow (Image & Video)
+
+```mermaid
+flowchart TD
+    Input([Upload Image or Video File]) --> MagicBytes[Magic-Bytes Validation: validate_media_bytes]
+    MagicBytes -->|Invalid Mime/Header| Error[Return 400 Validation Error]
+    
+    MagicBytes -->|Valid Media| AsyncDispatch[Dispatch Task analyze_deepfake_task to Celery]
+    AsyncDispatch --> MediaFormat{Media Format?}
+    
+    MediaFormat -->|Image .jpg/.png/.webp| ImagePath[Load Image -> Resize 224x224 -> ImageNet Normalize]
+    ImagePath --> PyTorchModel[PyTorch EfficientNet-B4 CNN Inference]
+    
+    MediaFormat -->|Video .mp4/.webm/.mov| VideoPath[OpenCV cv2.VideoCapture Processing]
+    VideoPath --> FrameSampler[Sample 8 Keyframes Across Duration]
+    FrameSampler --> FrameLoop[Extract & Preprocess Frame]
+    FrameLoop --> PyTorchModel
+    PyTorchModel --> Aggregation[Aggregate Anomaly Probabilities Across Frames]
+    
+    PyTorchModel --> SingleScore[Compute Anomaly Score]
+    
+    SingleScore --> OutputReport[Generate Experimental Verdict & Risk Score]
+    Aggregation --> OutputReport
+    OutputReport --> TaskComplete([Task Status: COMPLETE])
+```
 
 ---
 
