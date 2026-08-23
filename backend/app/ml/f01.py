@@ -275,17 +275,19 @@ async def infer_url_async(
     vector = feature_vector(final_features)
     model_loaded = _model is not None
 
-    if model_loaded and resolution.is_reachable:
+    if model_loaded:
         import numpy as np
         prob = float(_model.predict_proba(np.array([vector]))[0][1])
         shap_risk, shap_protective = _shap_factors(_model, vector)
         source = "ml_model"
-        note = "Native XGBoost evaluated on resolved final destination features."
+        note = "Native XGBoost ML evaluated on URL structural and lexical features."
+        if not resolution.is_reachable:
+            note += " Domain was unreachable — classification is lexical-only."
     else:
         prob = None
         shap_risk, shap_protective = [], []
         source = "heuristic"
-        note = "Lexical fallback and behavioral engine in use."
+        note = "Lexical fallback and behavioral engine in use (model not loaded)."
 
     # 5. Risk & Decision Engine
     risk_score, link_status, risk_level, explanations, raw_signals = calculate_comprehensive_risk(
@@ -299,6 +301,37 @@ async def infer_url_async(
 
     elapsed_ms = round((time.perf_counter() - start_time) * 1000.0, 2)
 
+    # --- Post-scoring: differentiate OFFICIAL vs NO-THREATS vs UNVERIFIED vs OFFLINE ---
+    _host = final_features.get("host", "")
+    is_official = (
+        _host in OFFICIAL_DOMAINS
+        or any(_host.endswith("." + d) for d in OFFICIAL_DOMAINS)
+    )
+
+    # Unreachable + unrecognised → override to UNKNOWN (never call a dead domain "safe")
+    if risk_level == "safe" and not is_official and not resolution.is_reachable:
+        risk_level = "unknown"
+        risk_score = 50
+        explanations = explanations or []
+        if not any("not respond" in e for e in explanations):
+            explanations.insert(0, "Domain did not respond to connection attempts — authenticity cannot be verified online.")
+
+    # Build final verdict status label (more precise than the generic mapping)
+    if risk_level == "safe":
+        if is_official:
+            final_verdict_status = "REAL / LEGITIMATE"
+        else:
+            final_verdict_status = "NO THREATS DETECTED"
+    else:
+        verdict_labels_local = {
+            "low_risk": "LOW RISK",
+            "moderate_risk": "SUSPICIOUS",
+            "high_risk": "PHISHING",
+            "critical": "CRITICAL THREAT",
+            "unknown": "UNKNOWN / UNVERIFIED",
+        }
+        final_verdict_status = verdict_labels_local.get(risk_level, risk_level.upper())
+
     verdict_obj = generate_explanation(
         feature_id="F-01",
         risk_level=risk_level,
@@ -306,17 +339,10 @@ async def infer_url_async(
         scam_category="malicious_url" if risk_level in ("high_risk", "critical") else None,
     )
 
-    # Human-readable verdict mapping
-    verdict_labels = {
-        "safe": "REAL / LEGITIMATE",
-        "low_risk": "LOW RISK",
-        "moderate_risk": "SUSPICIOUS",
-        "high_risk": "PHISHING",
-        "critical": "CRITICAL THREAT",
-        "unknown": "UNKNOWN / UNVERIFIED",
-    }
-    verdict_obj["verdict_status"] = verdict_labels.get(risk_level, risk_level.upper())
+    # Human-readable verdict mapping (replaced by precise final_verdict_status above)
+    verdict_obj["verdict_status"] = final_verdict_status
     verdict_obj["link_status"] = link_status
+    verdict_obj["is_official_domain"] = is_official
 
     structured_explanation = {
         "top_risk_factors": shap_risk if shap_risk else [exp for exp in explanations if "No suspicious" not in exp][:3],
@@ -327,7 +353,7 @@ async def infer_url_async(
         "original_url": url,
         "normalized_url": normalized_url,
         "final_url": final_url,
-        "classification": verdict_labels.get(risk_level, risk_level.upper()),
+        "classification": final_verdict_status,
         "url_type": url_type,
         "link_status": link_status,
         "redirect_status": link_status,
@@ -345,6 +371,7 @@ async def infer_url_async(
         "verdict": verdict_obj,
         "probability": prob,
         "ml_probability": prob,
+        "is_official_domain": is_official,
         "features": final_features,
         "url_features": final_features,
         "original_features": orig_features,

@@ -44,10 +44,54 @@ SHORTENERS = {
 }
 
 OFFICIAL_DOMAINS = {
-    "google.com", "www.google.com", "sbi.co.in", "www.sbi.co.in", "hdfcbank.com", "www.hdfcbank.com",
-    "icicibank.com", "www.icicibank.com", "paytm.com", "phonepe.com", "rbi.org.in", "www.rbi.org.in",
-    "incometax.gov.in", "uidai.gov.in", "irctc.co.in", "kotak.com", "amazon.in", "amazon.com",
-    "microsoft.com", "apple.com", "netflix.com", "whatsapp.com", "telegram.org", "facebook.com", "instagram.com"
+    # Indian banking, payments & UPI
+    "sbi.co.in", "www.sbi.co.in", "onlinesbi.sbi",
+    "hdfcbank.com", "www.hdfcbank.com",
+    "icicibank.com", "www.icicibank.com",
+    "paytm.com", "www.paytm.com",
+    "phonepe.com", "www.phonepe.com",
+    "kotak.com", "www.kotak.com",
+    "axisbank.com", "www.axisbank.com",
+    "pnbindia.in", "www.pnbindia.in",
+    "bankofbaroda.in", "www.bankofbaroda.in",
+    "canarabank.com", "www.canarabank.com",
+    "unionbankofindia.co.in",
+    # Indian government & infrastructure
+    "rbi.org.in", "www.rbi.org.in",
+    "incometax.gov.in",
+    "uidai.gov.in",
+    "irctc.co.in", "www.irctc.co.in",
+    "india.gov.in",
+    "epfindia.gov.in",
+    "gstn.org.in",
+    "npci.org.in",
+    "sebi.gov.in",
+    "mca.gov.in",
+    "passport.gov.in",
+    "digilocker.gov.in",
+    # Global search & productivity
+    "google.com", "www.google.com", "mail.google.com", "drive.google.com",
+    "microsoft.com", "www.microsoft.com", "login.microsoftonline.com",
+    "office.com", "outlook.com", "live.com",
+    "apple.com", "www.apple.com",
+    # Social & communication
+    "facebook.com", "www.facebook.com",
+    "instagram.com", "www.instagram.com",
+    "twitter.com", "www.twitter.com", "x.com",
+    "whatsapp.com", "www.whatsapp.com",
+    "telegram.org", "web.telegram.org",
+    "linkedin.com", "www.linkedin.com",
+    "youtube.com", "www.youtube.com",
+    "reddit.com", "www.reddit.com",
+    # Dev & knowledge
+    "github.com", "www.github.com",
+    "stackoverflow.com", "www.stackoverflow.com",
+    "wikipedia.org", "en.wikipedia.org",
+    # Commerce & streaming
+    "amazon.com", "www.amazon.com", "amazon.in", "www.amazon.in",
+    "flipkart.com", "www.flipkart.com",
+    "netflix.com", "www.netflix.com",
+    "hotstar.com", "www.hotstar.com",
 }
 
 BRAND_TOKENS = (

@@ -404,17 +404,19 @@ async def analyze_deepfake(
             detail={"error_code": "EMPTY_FILE", "message": "Uploaded file is empty."}
         )
 
+    from app.shared.uploads import validate_media_bytes
     try:
-        validate_image_bytes(image_bytes)
+        media_fmt = validate_media_bytes(image_bytes)
     except UploadError as exc:
         raise HTTPException(status_code=exc.status_code, detail={"error_code": exc.error_code, "message": exc.message})
 
-    # Write image bytes to temp file
+    # Write media bytes to temp file with proper extension for OpenCV VideoCapture
     task_id = uuid.uuid4()
-    safe_filename = f"media_{task_id}.bin"
+    safe_filename = f"media_{task_id}.{media_fmt if media_fmt in ('mp4', 'avi', 'mov', 'webm') else 'png'}"
     file_path = os.path.join(SCAN_UPLOAD_DIR, safe_filename)
     with open(file_path, "wb") as fh:
         fh.write(image_bytes)
+
 
     # Run synchronously in dev mode (no Redis needed)
     try:

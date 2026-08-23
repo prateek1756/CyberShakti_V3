@@ -577,7 +577,44 @@ export const PhishingScan = () => {
             )}
           </div>
 
-          {/* Redirect Chain Collapsible */}
+          {/* Domain Resolution Status Banner */}
+          {(() => {
+            const rd = scanResponse.resolution_details;
+            if (!rd) return null;
+            const isOnline = rd.is_reachable;
+            const resStatus = rd.status || 'UNKNOWN';
+            const errMsg = rd.error_message;
+            const statusConfig = {
+              SUCCESS:    { color: 'emerald', icon: '✓', label: 'Domain Online',   sub: 'Server responded successfully' },
+              REDIRECTED: { color: 'cyan',    icon: '↪', label: 'Domain Online (Redirected)', sub: 'Final destination resolved' },
+              DNS_ERROR:  { color: 'amber',   icon: '⚠', label: 'Domain Not Found', sub: errMsg || 'DNS resolution failed — domain may not exist' },
+              TIMEOUT:    { color: 'amber',   icon: '⏱', label: 'Connection Timeout', sub: 'Server did not respond in time' },
+              CONNECTION_ERROR: { color: 'amber', icon: '✗', label: 'Connection Failed', sub: errMsg || 'Could not reach server' },
+              BLOCKED_SSRF: { color: 'red',  icon: '🚫', label: 'SSRF Blocked',     sub: 'Attempt to access internal network — HIGH RISK' },
+              MAX_REDIRECTS_EXCEEDED: { color: 'amber', icon: '⚠', label: 'Too Many Redirects', sub: `Chain exceeded limit: ${rd.redirect_count} hops` },
+            };
+            const cfg = statusConfig[resStatus] || { color: 'slate', icon: '?', label: resStatus, sub: '' };
+            const colors = {
+              emerald: 'bg-emerald-950/30 border-emerald-500/30 text-emerald-300',
+              cyan:    'bg-cyan-950/30 border-cyan-500/30 text-cyan-300',
+              amber:   'bg-amber-950/30 border-amber-500/30 text-amber-300',
+              red:     'bg-red-950/30 border-red-500/30 text-red-300',
+              slate:   'bg-slate-800/50 border-slate-600/30 text-slate-300',
+            };
+            return (
+              <div className={`px-4 py-2.5 rounded-xl border flex items-center justify-between gap-3 text-xs font-mono ${colors[cfg.color]}`}>
+                <div className="flex items-center gap-2.5">
+                  <span className="text-base leading-none">{cfg.icon}</span>
+                  <div>
+                    <span className="font-bold">{cfg.label}</span>
+                    <span className="ml-2 text-[11px] opacity-70">{cfg.sub}</span>
+                  </div>
+                </div>
+                <span className="px-2 py-0.5 rounded bg-black/30 text-[10px] font-bold uppercase tracking-wider opacity-80">{resStatus}</span>
+              </div>
+            );
+          })()}
+
           {scanResponse.redirect_chain && scanResponse.redirect_chain.length > 0 && (
             <div className="border border-border/60 rounded-xl overflow-hidden">
               <button
@@ -732,9 +769,15 @@ export const PhishingScan = () => {
           confidence={confidenceScore}
           threatType={
             verdict.risk_level === 'safe'
-              ? 'Legitimate Domain'
+              ? (scanResponse.is_official_domain || verdict.is_official_domain
+                  ? 'Verified Legitimate Domain'
+                  : 'No Threats Detected')
               : verdict.risk_level === 'unknown'
-              ? 'Unverified Destination'
+              ? 'Unverified / Offline Domain'
+              : verdict.risk_level === 'low_risk'
+              ? 'Low Risk — Monitor Carefully'
+              : verdict.risk_level === 'moderate_risk'
+              ? 'Suspicious Link'
               : 'Phishing Link / Malicious URL'
           }
           scanId={currentScanId}
@@ -752,9 +795,13 @@ export const PhishingScan = () => {
               sub: 'XGBoost on 19 features'
             },
             {
-              label: 'SSRF Guard',
-              value: 'Active',
-              sub: 'Private IPs protected'
+              label: 'Domain Verified',
+              value: (scanResponse.is_official_domain || verdict.is_official_domain)
+                ? '✓ Official'
+                : scanResponse.resolution_details?.is_reachable
+                ? 'Unverified'
+                : '✗ Offline',
+              sub: 'Against safe-list'
             }
           ]}
         />

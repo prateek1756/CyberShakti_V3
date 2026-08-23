@@ -34,14 +34,20 @@ export const DeepfakeScan = () => {
 
   const handleFile = (selectedFile) => {
     if (!selectedFile) return;
-    if (!selectedFile.type.startsWith('image/')) {
-      setError('Please upload a JPEG, PNG, or WebP image file.');
+    const isImage = selectedFile.type.startsWith('image/');
+    const isVideo = selectedFile.type.startsWith('video/') || /\.(mp4|avi|mov|webm|mkv)$/i.test(selectedFile.name);
+    if (!isImage && !isVideo) {
+      setError('Please upload an image (JPEG, PNG, WebP) or video (MP4, WebM, MOV) file.');
       return;
     }
     setFile(selectedFile);
-    setPreview(URL.createObjectURL(selectedFile));
+    setPreview({
+      url: URL.createObjectURL(selectedFile),
+      isVideo: isVideo
+    });
     resetState();
   };
+
 
   const handleDrop = (e) => {
     e.preventDefault();
@@ -139,7 +145,7 @@ export const DeepfakeScan = () => {
             <input
               ref={inputRef}
               type="file"
-              accept="image/*"
+              accept="image/*,video/mp4,video/webm,video/quicktime,video/x-msvideo"
               className="hidden"
               id="deepfake-file-input"
               onChange={(e) => handleFile(e.target.files[0])}
@@ -148,11 +154,22 @@ export const DeepfakeScan = () => {
             {preview ? (
               <div className="relative w-full space-y-3">
                 <div className="relative inline-block overflow-hidden rounded-xl border border-border shadow-2xl max-h-64 mx-auto">
-                  <img
-                    src={preview}
-                    alt="Selected media for analysis"
-                    className="max-h-64 object-contain rounded-xl mx-auto"
-                  />
+                  {preview.isVideo ? (
+                    <video
+                      src={preview.url}
+                      controls
+                      autoPlay
+                      muted
+                      loop
+                      className="max-h-64 object-contain rounded-xl mx-auto"
+                    />
+                  ) : (
+                    <img
+                      src={preview.url}
+                      alt="Selected media for analysis"
+                      className="max-h-64 object-contain rounded-xl mx-auto"
+                    />
+                  )}
 
                   {/* Animated laser scan line overlay when loading */}
                   {loading && (
@@ -168,7 +185,7 @@ export const DeepfakeScan = () => {
                     {file?.name}
                   </p>
                   <p className="text-[11px] text-slate-500">
-                    {(file?.size / 1024).toFixed(1)} KB · Click or drag to replace
+                    {(file?.size / (1024 * 1024)).toFixed(2)} MB · {preview.isVideo ? 'Video Clip (MP4/WebM)' : 'Image'} · Click or drag to replace
                   </p>
                 </div>
               </div>
@@ -179,10 +196,10 @@ export const DeepfakeScan = () => {
                 </div>
                 <div className="space-y-1">
                   <p className="text-slate-200 font-display font-semibold text-sm">
-                    Drop face image here or <span className="text-cyan-400 underline">browse</span>
+                    Drop face image or video here or <span className="text-cyan-400 underline">browse</span>
                   </p>
                   <p className="text-xs text-slate-500">
-                    Supports JPEG, PNG, WebP · Human face images work best
+                    Supports MP4, WebM, MOV, JPEG, PNG · Real-time multi-frame neural analysis
                   </p>
                 </div>
               </div>

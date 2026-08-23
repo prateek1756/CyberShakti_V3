@@ -100,36 +100,63 @@ def _classify_text_f02(text: str) -> float:
 # ---------------------------------------------------------------------------
 # F-06 helper: preprocess image bytes -> 4D tensor for EfficientNet
 # ---------------------------------------------------------------------------
-def _preprocess_image_for_efficientnet(file_path: str) -> torch.Tensor:
+def _preprocess_media_for_efficientnet(file_path: str) -> Tuple[torch.Tensor, int, str]:
     """
-    Load image from disk and convert to normalised (1,3,224,224) PyTorch tensor.
-    Raises FileNotFoundError or ValueError on invalid input.
+    Load image or video from disk and convert to normalised (N,3,224,224) PyTorch tensor.
+    For videos, extracts up to 8 evenly-spaced frames.
+    Returns: (tensor, frame_count, media_type)
     """
     if not os.path.exists(file_path):
-        raise FileNotFoundError(f"Image file not found: {file_path}")
+        raise FileNotFoundError(f"Media file not found: {file_path}")
 
     from PIL import Image
+    import cv2
     import io
-
-    with open(file_path, "rb") as fh:
-        raw = fh.read()
-
-    try:
-        img = Image.open(io.BytesIO(raw)).convert("RGB")
-    except Exception as exc:
-        raise ValueError(f"Cannot decode image file {file_path}: {exc}") from exc
-
-    img = img.resize((224, 224), Image.BILINEAR)
-
-    # Convert to (C, H, W) float32 tensor, normalize with ImageNet mean/std
     import numpy as np
-    arr = np.array(img, dtype=np.float32) / 255.0
+
     mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
     std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
-    arr = (arr - mean) / std
-    arr = arr.transpose(2, 0, 1)  # H,W,C -> C,H,W
-    tensor = torch.from_numpy(arr).unsqueeze(0)  # (1,3,224,224)
-    return tensor
+
+    # First attempt reading as a video via OpenCV VideoCapture
+    cap = cv2.VideoCapture(file_path)
+    frames_list = []
+    is_video = False
+
+    if cap.isOpened():
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if total_frames > 1:
+            is_video = True
+            # Sample up to 8 frames evenly across the video
+            sample_count = min(8, max(1, total_frames))
+            indices = np.linspace(0, total_frames - 1, sample_count, dtype=int)
+            for idx in indices:
+                cap.set(cv2.CAP_PROP_POS_FRAMES, int(idx))
+                ret, frame = cap.read()
+                if ret and frame is not None:
+                    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    img = Image.fromarray(rgb).resize((224, 224), Image.BILINEAR)
+                    arr = (np.array(img, dtype=np.float32) / 255.0 - mean) / std
+                    frames_list.append(arr.transpose(2, 0, 1))
+        cap.release()
+
+    # If not a video or no video frames read, decode as image
+    if not frames_list:
+        with open(file_path, "rb") as fh:
+            raw = fh.read()
+        try:
+            img = Image.open(io.BytesIO(raw)).convert("RGB")
+        except Exception as exc:
+            raise ValueError(f"Cannot decode media file {file_path}: {exc}") from exc
+
+        img = img.resize((224, 224), Image.BILINEAR)
+        arr = (np.array(img, dtype=np.float32) / 255.0 - mean) / std
+        frames_list.append(arr.transpose(2, 0, 1))
+
+    # Stack frames into tensor: (N, 3, 224, 224)
+    tensor = torch.from_numpy(np.stack(frames_list, axis=0))
+    media_type = "video" if is_video else "image"
+    return tensor, len(frames_list), media_type
+
 
 
 # ---------------------------------------------------------------------------
@@ -296,9 +323,9 @@ def detect_deepfake(job_id: str, file_path: str) -> Dict[str, Any]:
     """
     from ml.pipelines.train_f06_efficientnet import DeepfakeEfficientNetDetector
 
-    # Load and preprocess actual image
+    # Load and preprocess media (image or video)
     try:
-        tensor = _preprocess_image_for_efficientnet(file_path)
+        tensor, frame_count, media_type = _preprocess_media_for_efficientnet(file_path)
     except FileNotFoundError as exc:
         logger.error("F-06: %s", exc)
         return {
@@ -308,7 +335,7 @@ def detect_deepfake(job_id: str, file_path: str) -> Dict[str, Any]:
             "verdict": {"risk_level": "error"}
         }
     except ValueError as exc:
-        logger.warning("F-06: invalid image: %s", exc)
+        logger.warning("F-06: invalid media: %s", exc)
         return {
             "job_id": job_id,
             "error": "INVALID_IMAGE",
@@ -344,12 +371,16 @@ def detect_deepfake(job_id: str, file_path: str) -> Dict[str, Any]:
 
     with torch.no_grad():
         outputs = model(tensor)
-        prob = float(torch.softmax(outputs, dim=1)[0, 0])  # label 0 = fake; anomaly score = prob_fake
+        # label 0 = fake; anomaly score = prob_fake across all sampled frames
+        probs = torch.softmax(outputs, dim=1)[:, 0]
+        prob = float(torch.mean(probs))  # average anomaly across sampled video frames
 
     risk_level = "high_risk" if prob >= 0.7 else "moderate_risk" if prob >= 0.4 else "safe"
 
     # Gate signals on probability — do not emit high-risk signals for safe results (Fix 5)
     signals = ["cnn_facial_anomaly_detected", "efficientnet_b4_feature_noise"] if prob >= 0.4 else []
+    if media_type == "video":
+        signals.append(f"video_analyzed_{frame_count}_frames")
 
     explanation_data = generate_explanation(
         feature_id="F-06",
@@ -363,10 +394,13 @@ def detect_deepfake(job_id: str, file_path: str) -> Dict[str, Any]:
         "media_analysis": {
             "faces_detected": 1,
             "architecture": "EfficientNet-B4 (PyTorch)",
+            "media_type": media_type,
+            "frames_analyzed": frame_count,
             "anomaly_score": round(prob, 4)
         },
         "verdict": explanation_data
     }
+
 
 
 @celery_app.task(name="tasks.detect_mule_account")
